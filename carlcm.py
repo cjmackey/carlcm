@@ -102,8 +102,9 @@ class Context(object):
             self._mkdir(os.path.dirname(dest_path))
             with open(dest_path, 'a'):
                 os.utime(dest_path, None)
-        # todo: perms
+        # TODO: perms
         if src_data is not None:
+            # TODO: json-compatible src_data? test if it's a dict.
             file_len = os.stat(dest_path).st_size
             if file_len == len(src_data):
                 dest_data = open(dest_path, 'rb').read()
@@ -135,4 +136,71 @@ class Context(object):
                          src_data = jinja2.Template(src_data).render(template_parameters),
                          triggers = triggers)
 
-    # TODO: rsync, line in file, git repo, user, group, user_complete, group_complete
+    def group(self, groupname, gid=None, triggers=None, triggered_by=None):
+        try:
+            grp.getgrnam(groupname)
+            group_existed = True
+        except KeyError:
+            group_existed = False
+        if not group_existed:
+            cmd = ['groupadd']
+            if gid is not None:
+                cmd += ['-g', str(gid)]
+            cmd += [groupname]
+            subprocess.check_output(cmd)
+        return self._after(not group_existed, triggers)
+
+    def user(self, username, password=None, hashed_password=None, home=None, uid=None, gid=None, groups=None, shell=None, groups=None, comment=None, triggers=None, triggered_by=None):
+        '''
+        http://serverfault.com/questions/367559/how-to-add-a-user-without-knowing-the-encrypted-form-of-the-password
+        echo "P4sSw0rD" | openssl passwd -1 -stdin
+        '''
+        groups = groups || []
+        try:
+            pwd.getpwnam(username)
+            user_existed = True
+        except KeyError:
+            user_existed = False
+        if not user_existed:
+            cmd = ['useradd']
+            if home is False:
+                cmd += ['-M']
+            elif type(home) is str:
+                cmd += ['-d', home]
+            else:
+                raise 'errrrrr'
+            if uid is not None:
+                cmd += ['-u', str(uid)]
+            if gid is not None:
+                cmd += ['-g', str(gid)]
+            if shell is not None:
+                cmd += ['-s', str(shell)]
+            if comment is not None:
+                cmd += ['-c', str(comment)]
+            cmd += ['-U', username]
+            subprocess.check_output(cmd)
+
+        existing_groups = set(subprocess.check_output(['groups', username]).split(':')[-1].strip().split()) - set([username])
+        changing_groups = set(existing_groups) == set(groups)
+        for group in sorted(list(set(groups) - set(existing_groups))):
+            subprocess.check_output(['gpasswd', '-a', username, group])
+        for group in sorted(list(set(existing_groups) - set(groups))):
+            subprocess.check_output(['gpasswd', '-d', username, group])
+
+        if password is not None:
+            # TODO: check that the password matches somehow?
+            # from http://stackoverflow.com/questions/4688441/how-can-i-set-a-users-password-in-linux-from-a-python-script
+            proc=subprocess.Popen(['passwd', 'test'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            proc.stdin.write(str(password) + '\n')
+            proc.stdin.write(str(password))
+            proc.stdin.flush()
+            stdout,stderr = proc.communicate()
+        if hashed_password is not None:
+            # TODO!
+            # maybe chpasswd?
+            pass
+
+passwd --stdin username
+        return self._after(not user_existed or changing_groups, triggers)
+
+    # TODO: rsync, line in file, git repo, user, group, user_complete, group_complete, apt
