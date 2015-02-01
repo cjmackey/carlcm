@@ -56,3 +56,4 @@ target/
 # Testing file creation/deletion/etc
 tests/sandbox
 coverage
+.vagrant

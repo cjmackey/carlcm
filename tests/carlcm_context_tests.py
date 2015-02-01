@@ -23,6 +23,7 @@ class TestCarlCMContext(object):
         c._stat = Mock()
         c._group_name_to_gid = Mock()
         c._user_name_to_uid = Mock()
+        c._user_home = Mock()
 
     def test_cmd(self):
         eq_(c.cmd(['pwd']), True)
@@ -182,9 +183,14 @@ class TestCarlCMContext(object):
 
     def test_user_new(self):
         c._user_name_to_uid.return_value = None
+        c._user_home.return_value = '/home/jessie'
+        c._mkdir = Mock()
+        c._apply_permissions = Mock()
         eq_(c.user('jessie'), True)
         c._user_name_to_uid.assert_called_once_with('jessie')
         c._cmd_quiet.assert_called_once_with(['useradd', '-U', 'jessie'])
+        c._mkdir.assert_called_once_with('/home/jessie')
+        c._apply_permissions.assert_called_once_with('/home/jessie', 'jessie', 'jessie', '755')
 
     def test_user_new_homeless(self):
         c._user_name_to_uid.return_value = None
@@ -193,9 +199,14 @@ class TestCarlCMContext(object):
 
     def test_user_new_homed(self):
         c._user_name_to_uid.return_value = None
+        c._user_home.return_value = '/var/jessie'
+        c._mkdir = Mock()
+        c._apply_permissions = Mock()
         eq_(c.user('jessie', home='/var/jessie'), True)
         c._cmd_quiet.assert_called_once_with(['useradd', '-d', '/var/jessie',
                                               '-U', 'jessie'])
+        c._mkdir.assert_called_once_with('/var/jessie')
+        c._apply_permissions.assert_called_once_with('/var/jessie', 'jessie', 'jessie', '755')
 
     def test_user_groups_unchanged(self):
         c._user_name_to_uid.return_value = 1003

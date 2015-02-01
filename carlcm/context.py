@@ -92,6 +92,7 @@ class Context(object):
                 os.environ['DEBIAN_FRONTEND'] = old_env
             else:
                 del os.environ['DEBIAN_FRONTEND']
+            self.package_cache = None
         return self._after(len(new_packages) > 0, triggers)
 
     def cmd(self, cmd, quiet=False, triggers=None, triggered_by=None, **kwargs):
@@ -129,6 +130,7 @@ class Context(object):
     def _chmod(self, path, mode):
         os.chmod(path, mode)
     def _chown(self, path, owner, group):
+        # print 'chowning!!!!!!', path, owner, group
         os.chown(path, owner, group)
     def _stat(self, path):
         return os.stat(path)
@@ -142,6 +144,8 @@ class Context(object):
             return grp.getgrnam(group).gr_gid
         except KeyError:
             return None
+    def _user_home(self, user):
+        return pwd.getpwnam(user).pw_dir
 
     def _apply_permissions(self, path, owner, group, mode):
         stat = self._stat(path)
@@ -149,7 +153,7 @@ class Context(object):
         if mode is not None:
             if type(mode) == str:
                 mode = int(mode, 8)
-            self._chmod(self, path, mode)
+            self._chmod(path, mode)
             if S_IMODE(stat.st_mode) != mode:
                 matched = False
         if owner is not None or group is not None:
@@ -250,7 +254,7 @@ class Context(object):
         return self._after(not group_existed, triggers)
 
     def user(self, username, password=None, encrypted_password=None,
-             home=None, uid=None, gid=None, groups=None, shell=None,
+             home=None, home_mode='755', uid=None, gid=None, groups=None, shell=None,
              comment=None, triggers=None, triggered_by=None):
         '''
         http://serverfault.com/questions/367559/
@@ -277,6 +281,10 @@ class Context(object):
                 cmd += ['-c', str(comment)]
             cmd += ['-U', username]
             self._cmd_quiet(cmd)
+            if home is not False:
+                _home = self._user_home(username)
+                self._mkdir(_home)
+                self._apply_permissions(_home, username, username, home_mode)
 
         changing_groups = False
         if groups:
