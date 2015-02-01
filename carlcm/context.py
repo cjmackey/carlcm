@@ -43,27 +43,42 @@ class Context(object):
     def shell(self, cmd, **kwargs):
         return self.cmd(cmd, shell=True, **kwargs)
 
+    def _cmd_quiet(self, *args, **kwargs):
+        return subprocess.check_output(*args, **kwargs)
+
+    def _cmd(self, *args, **kwargs):
+        return subprocess.check_call(*args, **kwargs)
+
     def cmd(self, cmd, quiet=False, triggers=None, triggered_by=None, **kwargs):
         if self._before(triggered_by): return False
         if quiet:
-            subprocess.check_output(cmd, **kwargs)
+            self._cmd_quiet(cmd, **kwargs)
         else:
-            subprocess.check_call(cmd, **kwargs)
+            self._cmd(cmd, **kwargs)
         return self._after(True, triggers)
+
+    def _isfile(self, f):
+        return os.path.isfile(f)
+
+    def _mkdir_1(self, d):
+        return os.mkdir(d)
 
     def _mkdir(self, d):
         """
         Based on http://code.activestate.com/recipes/82465-a-friendly-mkdir/
         """
         d = os.path.realpath(d)
-        if os.path.isdir(d):
+        id = self._isdir(d)
+        print 'isdir', d, id
+        if id:
             return False
-        elif os.path.isfile(d):
+        elif self._isfile(d):
             raise OSError("file exists: " % d)
         else:
             h, t = os.path.split(d)
+            print 'split', h, t
             if h: self._mkdir(h)
-            if t: os.mkdir(d)
+            if t: self._mkdir_1(d)
         return True
 
     def _apply_permissions(self, path, owner, group, mode):
@@ -80,44 +95,51 @@ class Context(object):
         # TODO: make it so we track whether we changed things or not
         return
 
+    def _isdir(self, path):
+        return os.path.isdir(path)
+
     def mkdir(self, path, owner=None, group=None, mode=None, triggers=None, triggered_by=None):
         if self._before(triggered_by): return False
         path = os.path.realpath(path)
-        is_new = not os.path.isdir(path)
-        if is_new:
-            self._mkdir(path)
+        is_new = self._mkdir(path)
             # subprocess.check_output(['mkdir', '-p', path])
         self._apply_permissions(path, owner, group, mode)
         return self._after(is_new, triggers)
 
+    def _touch(self, path):
+        self._mkdir(os.path.dirname(path))
+        with open(path, 'a'):
+            os.utime(path, None)
+
+    def _read_file(self, path):
+        return open(path, 'rb').read()
+
+    def _write_file(self, path, data):
+        with open(path, 'wb') as f:
+            f.write(data)
+
     def file(self, dest_path, src_path=None, src_data=None, triggers=None, triggered_by=None):
+        assert bool(src_path) != bool(src_data)
         if self._before(triggered_by): return False
         if dest_path[-1:] == '/' and src_path:
             _, tail = os.path.split(src_path)
             dest_path += tail
         dest_path = os.path.realpath(dest_path)
-        file_exists = os.path.isfile(dest_path)
-        does_match = False
-        if not file_exists: # mkdir and touch it!
-            self._mkdir(os.path.dirname(dest_path))
-            with open(dest_path, 'a'):
-                os.utime(dest_path, None)
+        file_existed = self._isfile(dest_path)
+        if not file_existed: # mkdir and touch it!
+            self._touch(dest_path)
         # TODO: perms
-        if src_data is not None:
-            # TODO: json-compatible src_data? test if it's a dict.
-            file_len = os.stat(dest_path).st_size
-            if file_len == len(src_data):
-                dest_data = open(dest_path, 'rb').read()
-                if dest_data == src_data:
-                    does_match = True
-            if not does_match:
-                with open(dest_path, 'wb') as f:
-                    f.write(src_data)
-        elif src_path is not None:
-            does_match = filecmp.cmp(dest_path, src_path)
-            if not does_match:
-                shutil.copyfile(src_path, dest_path)
-        return self._after(not (file_exists and does_match), triggers)
+        old_contents = self._read_file(dest_path)
+        if src_path is not None:
+            src_data = self._read_file(src_path)
+        if type(src_data) is dict:
+            # TODO: json comparison before writing
+            pass
+        else:
+            contents_match = src_data == old_contents
+        if not contents_match:
+            self._write_file(dest_path, src_data)
+        return self._after(not (file_existed and contents_match), triggers)
 
     def template(self, dest_path, src_path=None, src_data=None, template_parameters=None, triggers=None, triggered_by=None, engine='jinja2', **kwargs):
         if engine == 'jinja2':
@@ -130,7 +152,7 @@ class Context(object):
         for k, v in kwargs.items():
             template_parameters[k] = template_parameters.get(k, v)
         if src_path is not None and src_data is None:
-            src_data = open(src_path, 'rb').read()
+            src_data = self._read_file(src_path)
         # todo: also pass perms
         return self.file(dest_path = dest_path,
                          src_data = jinja2.Template(src_data).render(template_parameters),
@@ -150,12 +172,12 @@ class Context(object):
             subprocess.check_output(cmd)
         return self._after(not group_existed, triggers)
 
-    def user(self, username, password=None, hashed_password=None, home=None, uid=None, gid=None, groups=None, shell=None, groups=None, comment=None, triggers=None, triggered_by=None):
+    def user(self, username, password=None, hashed_password=None, home=None, uid=None, gid=None, groups=None, shell=None, comment=None, triggers=None, triggered_by=None):
         '''
         http://serverfault.com/questions/367559/how-to-add-a-user-without-knowing-the-encrypted-form-of-the-password
         echo "P4sSw0rD" | openssl passwd -1 -stdin
         '''
-        groups = groups || []
+        groups = groups or []
         try:
             pwd.getpwnam(username)
             user_existed = True
@@ -200,7 +222,7 @@ class Context(object):
             # maybe chpasswd?
             pass
 
-passwd --stdin username
+#passwd --stdin username
         return self._after(not user_existed or changing_groups, triggers)
 
     # TODO: rsync, line in file, git repo, user, group, user_complete, group_complete, apt
