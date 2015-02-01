@@ -118,3 +118,17 @@ class TestCarlCMContext(object):
         c._read_file.return_value = 'asdf'
         eq_(c.template('/file.txt', src_data='{{ x }}df', x='as'), False)
         c._write_file.assert_has_calls([])
+
+    def test_triggers(self):
+        eq_(c.cmd([], triggered_by='t1'), False)
+        eq_(c.cmd([], triggers='t1'), True)
+        eq_(c.cmd([], triggered_by='t1'), True)
+        eq_(c.cmd([], triggered_by=['t1', 't2']), True)
+        eq_(c.cmd([], triggered_by=['t2', 't3']), False)
+        eq_(c.cmd([], triggers=['t2','t3']), True)
+        eq_(c.cmd([], triggered_by=['t3']), True)
+        eq_(c.cmd([], triggered_by='t4', triggers='t5'), False)
+        eq_(c.cmd([], triggered_by='t5'), False)
+        c._isdir.return_value=True
+        eq_(c.mkdir('/path', triggers='t6'), False)
+        eq_(c.cmd([], triggered_by='t6'), False)
