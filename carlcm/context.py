@@ -132,8 +132,8 @@ class Context(object):
         if self._before(triggered_by): return False
         path = os.path.realpath(path)
         is_new = self._mkdir(path)
-        self._apply_permissions(path, owner, group, mode)
-        return self._after(is_new, triggers)
+        perm_change = self._apply_permissions(path, owner, group, mode)
+        return self._after(is_new or perm_change, triggers)
 
     def _touch(self, path):
         self._mkdir(os.path.dirname(path))
@@ -148,6 +148,7 @@ class Context(object):
             f.write(data)
 
     def file(self, dest_path, src_path=None, src_data=None,
+             owner=None, group=None, mode=None,
              triggers=None, triggered_by=None):
         assert bool(src_path) != bool(src_data)
         if self._before(triggered_by): return False
@@ -156,9 +157,9 @@ class Context(object):
             dest_path += tail
         dest_path = os.path.realpath(dest_path)
         file_existed = self._isfile(dest_path)
-        if not file_existed: # mkdir and touch it!
+        if not file_existed:
             self._touch(dest_path)
-        # TODO: perms
+        perm_change = self._apply_permissions(dest_path, owner, group, mode)
         old_contents = self._read_file(dest_path)
         if src_path is not None:
             src_data = self._read_file(src_path)
@@ -169,7 +170,7 @@ class Context(object):
             contents_match = src_data == old_contents
         if not contents_match:
             self._write_file(dest_path, src_data)
-        return self._after(not (file_existed and contents_match), triggers)
+        return self._after(perm_change or not (file_existed and contents_match), triggers)
 
     def template(self, dest_path, src_path=None, src_data=None,
                  template_parameters=None, engine='jinja2',
