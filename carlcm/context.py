@@ -14,6 +14,7 @@ class Context(object):
     '''
     def __init__(self):
         self.triggers = set()
+        self.package_cache = None
 
     def _before(self, triggered_by):
         '''
@@ -49,6 +50,49 @@ class Context(object):
 
     def _cmd(self, *args, **kwargs):
         return subprocess.check_call(*args, **kwargs)
+
+    def _cmd_in(self, cmd, stdin, **kwargs):
+        proc=subprocess.Popen(cmd,
+                              stdin=subprocess.PIPE,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT,
+                              **kwargs)
+        proc.stdin.write(str(stdin))
+        proc.stdin.flush()
+        stdout, stderr = proc.communicate()
+        return stdout
+
+    def current_packages(self):
+        if self.package_cache is not None:
+            return self.package_cache
+        s = self._cmd_quiet(['dpkg', '-l'])
+        d = {}
+        for line in [l.strip().split() for l in s.split("\n") if l.strip()[:2] == 'ii']:
+            if len(line) >= 3:
+                d[line[1]] = line[2]
+        self.package_cache = d
+        return d
+
+    def package_manager_update(self, triggers=None, triggered_by=None):
+        if self._before(triggered_by): return False
+        self._cmd_quiet(['apt-get', 'update'])
+        return self._after(True, triggers)
+
+    def package(self, package, **kwargs):
+        return self.packages([package], **kwargs)
+
+    def packages(self, packages, triggers=None, triggered_by=None):
+        if self._before(triggered_by): return False
+        new_packages = [p for p in packages if p not in self.current_packages()]
+        if len(new_packages) > 0:
+            old_env = os.getenv('DEBIAN_FRONTEND', None)
+            os.environ['DEBIAN_FRONTEND'] = 'noninteractive'
+            self._cmd_quiet(['apt-get', 'install', '-y'] + sorted(new_packages))
+            if old_env:
+                os.environ['DEBIAN_FRONTEND'] = old_env
+            else:
+                del os.environ['DEBIAN_FRONTEND']
+        return self._after(len(new_packages) > 0, triggers)
 
     def cmd(self, cmd, quiet=False, triggers=None, triggered_by=None, **kwargs):
         if self._before(triggered_by): return False
@@ -195,6 +239,7 @@ class Context(object):
                          triggers = triggers)
 
     def group(self, groupname, gid=None, triggers=None, triggered_by=None):
+        if self._before(triggered_by): return False
         group_existed = bool(self._group_name_to_gid(groupname))
         if not group_existed:
             cmd = ['groupadd']
@@ -204,13 +249,14 @@ class Context(object):
             self._cmd_quiet(cmd)
         return self._after(not group_existed, triggers)
 
-    def user(self, username, password=None, hashed_password=None,
+    def user(self, username, password=None, encrypted_password=None,
              home=None, uid=None, gid=None, groups=None, shell=None,
              comment=None, triggers=None, triggered_by=None):
         '''
         http://serverfault.com/questions/367559/
         echo "P4sSw0rD" | openssl passwd -1 -stdin
         '''
+        if self._before(triggered_by): return False
         user_existed = bool(self._user_name_to_uid(username))
         if not user_existed:
             cmd = ['useradd']
@@ -242,20 +288,12 @@ class Context(object):
             for group in sorted(list(set(existing_groups) - set(groups))):
                 self._cmd_quiet(['gpasswd', '-d', username, group])
 
+        # TODO: need to be able to check if the password was the same or not
         if password is not None:
-            # TODO: check that the password matches somehow?
-            # from http://stackoverflow.com/questions/4688441/
-            proc=subprocess.Popen(['passwd', 'test'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            proc.stdin.write(str(password) + '\n')
-            proc.stdin.write(str(password))
-            proc.stdin.flush()
-            stdout,stderr = proc.communicate()
-        if hashed_password is not None:
-            # TODO!
-            # maybe chpasswd?
-            pass
+            self._cmd_in(['chpasswd'], username + ':' + password + '\n')
+        if encrypted_password is not None:
+            self._cmd_in(['chpasswd', '-e'], username + ':' + encrypted_password + '\n')
 
-#passwd --stdin username
         return self._after(not user_existed or changing_groups, triggers)
 
-    # TODO: rsync, line in file, git repo, user, group, user_complete, group_complete, apt
+# TODO: rsync, line in file, git repo, download a file, apt
