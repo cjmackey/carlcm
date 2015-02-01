@@ -10,7 +10,7 @@ config = {
     'download_url': 'Where to download it.',
     'author_email': 'carljmackey@gmail.com',
     'version': '0.1',
-    'install_requires': ['nose', 'mock', 'coverage'],
+    'install_requires': ['nose', 'mock', 'coverage', 'jinja'],
     'packages': ['carlcm'],
     'scripts': [],
     'name': 'carlcm'

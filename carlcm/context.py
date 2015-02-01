@@ -5,6 +5,7 @@ import grp
 import os
 import pwd
 import shutil
+from stat import S_IMODE
 import subprocess
 
 class Context(object):
@@ -81,28 +82,56 @@ class Context(object):
             if t: self._mkdir_1(d)
         return True
 
+    def _chmod(self, path, mode):
+        os.chmod(path, mode)
+    def _chown(self, path, owner, group):
+        os.chown(path, owner, group)
+    def _stat(self, path):
+        return os.stat(path)
+    def _user_name_to_uid(self, user):
+        try:
+            return pwd.getpwnam(user).pw_uid
+        except KeyError:
+            return None
+    def _group_name_to_gid(self, group):
+        try:
+            return grp.getgrnam(group).gr_gid
+        except KeyError:
+            return None
+
     def _apply_permissions(self, path, owner, group, mode):
+        stat = self._stat(path)
+        matched = True
         if mode is not None:
             if type(mode) == str:
                 mode = int(mode, 8)
-            os.chmod(path, mode)
+            self._chmod(self, path, mode)
+            if S_IMODE(stat.st_mode) != mode:
+                matched = False
         if owner is not None or group is not None:
             owner = owner or -1
             group = group or -1
-            if type(owner) == str: owner = pwd.getpwnam(owner).pw_uid
-            if type(group) == str: group = grp.getgrnam(group).gr_gid
-            os.chown(path, owner, group)
-        # TODO: make it so we track whether we changed things or not
-        return
+            if type(owner) == str:
+                owner = self._user_name_to_uid(owner)
+                if not owner:
+                    raise 'no such user!'
+            if type(group) == str:
+                group = self._group_name_to_gid(group)
+                if not group:
+                    raise 'no such group!'
+            self._chown(path, owner, group)
+            if owner >= 0 and stat.st_uid != owner or group >= 0 and stat.st_gid != group:
+                matched = False
+        return not matched
 
     def _isdir(self, path):
         return os.path.isdir(path)
 
-    def mkdir(self, path, owner=None, group=None, mode=None, triggers=None, triggered_by=None):
+    def mkdir(self, path, owner=None, group=None, mode=None,
+              triggers=None, triggered_by=None):
         if self._before(triggered_by): return False
         path = os.path.realpath(path)
         is_new = self._mkdir(path)
-            # subprocess.check_output(['mkdir', '-p', path])
         self._apply_permissions(path, owner, group, mode)
         return self._after(is_new, triggers)
 
@@ -118,7 +147,8 @@ class Context(object):
         with open(path, 'wb') as f:
             f.write(data)
 
-    def file(self, dest_path, src_path=None, src_data=None, triggers=None, triggered_by=None):
+    def file(self, dest_path, src_path=None, src_data=None,
+             triggers=None, triggered_by=None):
         assert bool(src_path) != bool(src_data)
         if self._before(triggered_by): return False
         if dest_path[-1:] == '/' and src_path:
@@ -141,11 +171,16 @@ class Context(object):
             self._write_file(dest_path, src_data)
         return self._after(not (file_existed and contents_match), triggers)
 
-    def template(self, dest_path, src_path=None, src_data=None, template_parameters=None, triggers=None, triggered_by=None, engine='jinja2', **kwargs):
+    def template(self, dest_path, src_path=None, src_data=None,
+                 template_parameters=None, engine='jinja2',
+                 triggers=None, triggered_by=None, **kwargs):
         if engine == 'jinja2':
-            return self.jinja2(dest_path, src_path, src_data, template_parameters, triggers, triggered_by, **kwargs)
+            return self.jinja2(dest_path, src_path, src_data, template_parameters,
+                               triggers, triggered_by, **kwargs)
         raise 'no matching template engine!'
-    def jinja2(self, dest_path, src_path=None, src_data=None, template_parameters=None, triggers=None, triggered_by=None, **kwargs):
+
+    def jinja2(self, dest_path, src_path=None, src_data=None,
+               template_parameters=None, triggers=None, triggered_by=None, **kwargs):
         import jinja2
         if self._before(triggered_by): return False
         template_parameters = template_parameters or {}
@@ -159,38 +194,32 @@ class Context(object):
                          triggers = triggers)
 
     def group(self, groupname, gid=None, triggers=None, triggered_by=None):
-        try:
-            grp.getgrnam(groupname)
-            group_existed = True
-        except KeyError:
-            group_existed = False
+        group_existed = bool(self._group_name_to_gid(groupname))
         if not group_existed:
             cmd = ['groupadd']
             if gid is not None:
                 cmd += ['-g', str(gid)]
             cmd += [groupname]
-            subprocess.check_output(cmd)
+            self._cmd_quiet(cmd)
         return self._after(not group_existed, triggers)
 
-    def user(self, username, password=None, hashed_password=None, home=None, uid=None, gid=None, groups=None, shell=None, comment=None, triggers=None, triggered_by=None):
+    def user(self, username, password=None, hashed_password=None,
+             home=None, uid=None, gid=None, groups=None, shell=None,
+             comment=None, triggers=None, triggered_by=None):
         '''
-        http://serverfault.com/questions/367559/how-to-add-a-user-without-knowing-the-encrypted-form-of-the-password
+        http://serverfault.com/questions/367559/
         echo "P4sSw0rD" | openssl passwd -1 -stdin
         '''
-        groups = groups or []
-        try:
-            pwd.getpwnam(username)
-            user_existed = True
-        except KeyError:
-            user_existed = False
+        user_existed = bool(self._user_name_to_uid(username))
         if not user_existed:
             cmd = ['useradd']
-            if home is False:
-                cmd += ['-M']
-            elif type(home) is str:
-                cmd += ['-d', home]
-            else:
-                raise 'errrrrr'
+            if home is not None:
+                if home is False:
+                    cmd += ['-M']
+                elif type(home) is str:
+                    cmd += ['-d', home]
+                else:
+                    raise 'errrrrr'
             if uid is not None:
                 cmd += ['-u', str(uid)]
             if gid is not None:
@@ -200,18 +229,21 @@ class Context(object):
             if comment is not None:
                 cmd += ['-c', str(comment)]
             cmd += ['-U', username]
-            subprocess.check_output(cmd)
+            self._cmd_quiet(cmd)
 
-        existing_groups = set(subprocess.check_output(['groups', username]).split(':')[-1].strip().split()) - set([username])
-        changing_groups = set(existing_groups) == set(groups)
-        for group in sorted(list(set(groups) - set(existing_groups))):
-            subprocess.check_output(['gpasswd', '-a', username, group])
-        for group in sorted(list(set(existing_groups) - set(groups))):
-            subprocess.check_output(['gpasswd', '-d', username, group])
+        changing_groups = False
+        if groups:
+            gs = self._cmd_quiet(['groups', username])
+            existing_groups = set(gs.split(':')[-1].strip().split()) - set([username])
+            changing_groups = set(existing_groups) != set(groups)
+            for group in sorted(list(set(groups) - set(existing_groups))):
+                self._cmd_quiet(['gpasswd', '-a', username, group])
+            for group in sorted(list(set(existing_groups) - set(groups))):
+                self._cmd_quiet(['gpasswd', '-d', username, group])
 
         if password is not None:
             # TODO: check that the password matches somehow?
-            # from http://stackoverflow.com/questions/4688441/how-can-i-set-a-users-password-in-linux-from-a-python-script
+            # from http://stackoverflow.com/questions/4688441/
             proc=subprocess.Popen(['passwd', 'test'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
             proc.stdin.write(str(password) + '\n')
             proc.stdin.write(str(password))
