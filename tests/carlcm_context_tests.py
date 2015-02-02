@@ -190,7 +190,8 @@ class TestCarlCMContext(object):
         c._user_name_to_uid.assert_called_once_with('jessie')
         c._cmd_quiet.assert_called_once_with(['useradd', '-U', 'jessie'])
         c._mkdir.assert_called_once_with('/home/jessie')
-        c._apply_permissions.assert_called_once_with('/home/jessie', 'jessie', 'jessie', '755')
+        c._apply_permissions.assert_called_once_with('/home/jessie', 'jessie',
+                                                     'jessie', '755')
 
     def test_user_new_homeless(self):
         c._user_name_to_uid.return_value = None
@@ -206,8 +207,15 @@ class TestCarlCMContext(object):
         c._cmd_quiet.assert_called_once_with(['useradd', '-d', '/var/jessie',
                                               '-U', 'jessie'])
         c._mkdir.assert_called_once_with('/var/jessie')
-        c._apply_permissions.assert_called_once_with('/var/jessie', 'jessie', 'jessie', '755')
-
+        c._apply_permissions.assert_called_once_with('/var/jessie', 'jessie',
+                                                     'jessie', '755')
+    '''
+    TODO!
+    def test_user_exists_authorized_keys(self):
+        c._user_name_to_uid.return_value = 1002
+        eq_(c.group('jessie', authorized_keys=['blahblah']), False)
+        c._cmd_quiet.assert_has_calls([])
+    '''
     def test_user_groups_unchanged(self):
         c._user_name_to_uid.return_value = 1003
         c._cmd_quiet.side_effect = ['jessie : jessie admins wheel gamers\n']
