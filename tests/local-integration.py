@@ -36,3 +36,10 @@ def test_groups():
     eq_(c.user('carl'), True)
     eq_(c.user('carl', groups=['carltest']), True)
     eq_(c.user('carl', groups=['carltest']), False)
+
+'''
+def test_download():
+    c.shell('rm -f /opt/consul/0.4.1/consul.zip', quiet=True)
+    eq_(c.download('/opt/consul/0.4.1/consul.zip', 'https://dl.bintray.com/mitchellh/consul/0.4.1_linux_amd64.zip', sha256sum='2cf6e59edf348c3094c721eb77436e8c789afa2c35e6e3123a804edfeb1744ac'), True)
+    eq_(c.download('/opt/consul/0.4.1/consul.zip', 'https://dl.bintray.com/mitchellh/consul/0.4.1_linux_amd64.zip', sha256sum='2cf6e59edf348c3094c721eb77436e8c789afa2c35e6e3123a804edfeb1744ac'), False)
+'''

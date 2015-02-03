@@ -1,7 +1,7 @@
 try:
-    from setuptools import setup
+    from setuptools import setup, find_packages
 except ImportError:
-    from distutils.core import setup
+    from distutils.core import setup, find_packages
 
 config = {
     'description': 'CarlCM',
@@ -11,7 +11,7 @@ config = {
     'author_email': 'carljmackey@gmail.com',
     'version': '0.1',
     'install_requires': ['nose', 'mock', 'coverage', 'jinja2'],
-    'packages': ['carlcm'],
+    'packages': find_packages(),
     'scripts': [],
     'name': 'carlcm'
 }

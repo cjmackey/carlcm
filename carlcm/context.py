@@ -2,11 +2,13 @@
 import errno
 import filecmp
 import grp
+import json
 import os
 import pwd
 import shutil
 from stat import S_IMODE
 import subprocess
+import urllib
 
 class Context(object):
     '''
@@ -15,6 +17,7 @@ class Context(object):
     def __init__(self):
         self.triggers = set()
         self.package_cache = None
+        self.modules = []
 
     def _before(self, triggered_by):
         '''
@@ -115,14 +118,12 @@ class Context(object):
         """
         d = os.path.realpath(d)
         id = self._isdir(d)
-        print 'isdir', d, id
         if id:
             return False
         elif self._isfile(d):
             raise OSError("file exists: " % d)
         else:
             h, t = os.path.split(d)
-            print 'split', h, t
             if h: self._mkdir(h)
             if t: self._mkdir_1(d)
         return True
@@ -130,7 +131,6 @@ class Context(object):
     def _chmod(self, path, mode):
         os.chmod(path, mode)
     def _chown(self, path, owner, group):
-        # print 'chowning!!!!!!', path, owner, group
         os.chown(path, owner, group)
     def _stat(self, path):
         return os.stat(path)
@@ -193,11 +193,42 @@ class Context(object):
 
     def _write_file(self, path, data):
         with open(path, 'wb') as f:
+            f.truncate()
             f.write(data)
+
+    def download(self, path, url,
+                 sha1sum=None, sha256sum=None,
+                 owner=None, group=None, mode=None,
+                 triggers=None, triggered_by=None):
+        # NOTE: this downloads in-place currently, which is not great
+        # for sanctity of the file.
+
+        # Also... right now, if you don't pass sha1sum, it will only
+        # download once, and never check again.  Is that desired?
+        # Should it always download and compare the file?
+        if self._before(triggered_by): return False
+        file_new = not self._isfile(path)
+        if file_new:
+            self._touch(path)
+        perm_change = self._apply_permissions(path, owner, group, mode)
+        if not file_new:
+            if sha1sum is not None:
+                file_new = self._cmd_quiet(['sha1sum', path]).strip().split()[0] != sha1sum
+            if sha256sum is not None:
+                file_new = self._cmd_quiet(['sha256sum', path]).strip().split()[0] != sha256sum
+        if file_new:
+            urllib.urlretrieve(url, path)
+            if sha1sum is not None:
+                assert self._cmd_quiet(['sha1sum', path]).strip().split()[0] == sha1sum
+            if sha256sum is not None:
+                assert self._cmd_quiet(['sha256sum', path]).strip().split()[0] == sha256sum
+        return self._after(perm_change or file_new, triggers)
 
     def file(self, dest_path, src_path=None, src_data=None,
              owner=None, group=None, mode=None,
              triggers=None, triggered_by=None):
+        # NOTE: this writes the file in-place currently, which is not
+        # great for the stability of reads to that file.
         assert bool(src_path) != bool(src_data)
         if self._before(triggered_by): return False
         if dest_path[-1:] == '/' and src_path:
@@ -209,13 +240,12 @@ class Context(object):
             self._touch(dest_path)
         perm_change = self._apply_permissions(dest_path, owner, group, mode)
         old_contents = self._read_file(dest_path)
+        if type(src_data) is dict:
+            src_data = json.dumps(src_data, sort_keys=True,
+                                  indent=4, separators=(',', ': ')) + '\n'
         if src_path is not None:
             src_data = self._read_file(src_path)
-        if type(src_data) is dict:
-            # TODO: json comparison before writing
-            pass
-        else:
-            contents_match = src_data == old_contents
+        contents_match = src_data == old_contents
         if not contents_match:
             self._write_file(dest_path, src_data)
         return self._after(perm_change or not (file_existed and contents_match), triggers)
@@ -254,8 +284,8 @@ class Context(object):
         return self._after(not group_existed, triggers)
 
     def user(self, username, password=None, encrypted_password=None,
-             home=None, home_mode='755', uid=None, gid=None, groups=None, shell=None,
-             comment=None, triggers=None, triggered_by=None):
+             home=True, home_mode='755', uid=None, gid=None, groups=None, shell=None,
+             comment=None, random_password=False, triggers=None, triggered_by=None):
         '''
         http://serverfault.com/questions/367559/
         echo "P4sSw0rD" | openssl passwd -1 -stdin
@@ -264,7 +294,7 @@ class Context(object):
         user_existed = bool(self._user_name_to_uid(username))
         if not user_existed:
             cmd = ['useradd']
-            if home is not None:
+            if home is not True:
                 if home is False:
                     cmd += ['-M']
                 elif type(home) is str:
@@ -297,11 +327,27 @@ class Context(object):
                 self._cmd_quiet(['gpasswd', '-d', username, group])
 
         # TODO: need to be able to check if the password was the same or not
+        if random_password:
+            password = os.urandom(20).encode('hex')
         if password is not None:
             self._cmd_in(['chpasswd'], username + ':' + password + '\n')
         if encrypted_password is not None:
             self._cmd_in(['chpasswd', '-e'], username + ':' + encrypted_password + '\n')
 
         return self._after(not user_existed or changing_groups, triggers)
+
+    def add_modules(self, *args):
+        self.modules += args
+        return self
+
+    def run_modules(self):
+        packages = []
+        for module in self.modules:
+            packages += module.packages()
+        # TODO: change the package format to allow inclusion of versions... somehow
+        self.packages(packages)
+        for module in self.modules:
+            module.main(self)
+        return self
 
 # TODO: rsync, line in file, git repo, download a file, apt
