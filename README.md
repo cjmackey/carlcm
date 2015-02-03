@@ -1,4 +1,4 @@
-# CarlCM
+# CarlCM (not a serious name)
 
 ## Configuration Management for people who like programming
 
