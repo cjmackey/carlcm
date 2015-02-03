@@ -10,7 +10,7 @@ super buggy and there are a lot of useful methods missing.  Because
 this is simply Python code, more complicated things are possible, and
 easy things are still easy (to misparaphrase Larry Wall).
 
-Running simple idempotent operations is pretty simple:
+Running simple idempotent operations is like this:
 
 ```python
 import carlcm
@@ -30,6 +30,9 @@ class.  The behavior of modules is super-undecided, but currently
 interleaves apt packages from different modules, then each module's
 `main` method is run.  I might add something for Consul service
 definitions.
+
+The current way of invoking modules... which is pretty ugly but it
+works:
 
 ```python
 import carlcm
