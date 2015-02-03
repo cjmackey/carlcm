@@ -30,7 +30,7 @@ class Context(object):
         return len(set(triggered_by).intersection(self.triggers)) == 0
 
     def _after(self, is_new, triggers):
-        bad_triggers_message = 'triggers must be None, a string, or a list of strings'
+        bad_triggers_message = Exception('triggers must be None, a string, or a list of strings')
         if triggers is None:
             return is_new
         if type(triggers) == str:
@@ -135,14 +135,19 @@ class Context(object):
     def _stat(self, path):
         return os.stat(path)
     def _user_name_to_uid(self, user):
+        uid = None
         try:
-            return pwd.getpwnam(user).pw_uid
-        except KeyError:
-            return None
+            uid = pwd.getpwnam(user).pw_uid
+        except KeyError: pass
+        if uid is None and user == 'root':
+            uid = 0
+        return uid
     def _group_name_to_gid(self, group):
         try:
             return grp.getgrnam(group).gr_gid
         except KeyError:
+            if group == 'root':
+                return 0
             return None
     def _user_home(self, user):
         return pwd.getpwnam(user).pw_dir
@@ -161,12 +166,12 @@ class Context(object):
             group = group or -1
             if type(owner) == str:
                 owner = self._user_name_to_uid(owner)
-                if not owner:
-                    raise 'no such user!'
+                if owner is None:
+                    raise Exception('no such user!')
             if type(group) == str:
                 group = self._group_name_to_gid(group)
-                if not group:
-                    raise 'no such group!'
+                if group is None:
+                    raise Exception('no such group!')
             self._chown(path, owner, group)
             if owner >= 0 and stat.st_uid != owner or group >= 0 and stat.st_gid != group:
                 matched = False
@@ -256,7 +261,7 @@ class Context(object):
         if engine == 'jinja2':
             return self.jinja2(dest_path, src_path, src_data, template_parameters,
                                triggers, triggered_by, **kwargs)
-        raise 'no matching template engine!'
+        raise ValueError('no matching template engine!')
 
     def jinja2(self, dest_path, src_path=None, src_data=None,
                template_parameters=None, triggers=None, triggered_by=None, **kwargs):
@@ -300,7 +305,7 @@ class Context(object):
                 elif type(home) is str:
                     cmd += ['-d', home]
                 else:
-                    raise 'errrrrr'
+                    raise ValueError('errrrrr')
             if uid is not None:
                 cmd += ['-u', str(uid)]
             if gid is not None:
@@ -311,10 +316,12 @@ class Context(object):
                 cmd += ['-c', str(comment)]
             cmd += ['-U', username]
             self._cmd_quiet(cmd)
-            if home is not False:
-                _home = self._user_home(username)
-                self._mkdir(_home)
-                self._apply_permissions(_home, username, username, home_mode)
+        home_changed = False
+        home_perm_changed = False
+        if home is not False:
+            _home = self._user_home(username)
+            home_changed = self._mkdir(_home)
+            home_perm_changed = self._apply_permissions(_home, username, username, home_mode)
 
         changing_groups = False
         if groups:
@@ -334,7 +341,7 @@ class Context(object):
         if encrypted_password is not None:
             self._cmd_in(['chpasswd', '-e'], username + ':' + encrypted_password + '\n')
 
-        return self._after(not user_existed or changing_groups, triggers)
+        return self._after(not user_existed or home_changed or home_perm_changed or changing_groups, triggers)
 
     def add_modules(self, *args):
         self.modules += args
@@ -350,4 +357,4 @@ class Context(object):
             module.main(self)
         return self
 
-# TODO: rsync, line in file, git repo, download a file, apt
+# TODO: rsync, line in file, git repo, apt sources, apt keys

@@ -219,14 +219,14 @@ class TestCarlCMContext(object):
     def test_user_groups_unchanged(self):
         c._user_name_to_uid.return_value = 1003
         c._cmd_quiet.side_effect = ['jessie : jessie admins wheel gamers\n']
-        eq_(c.user('jessie', groups=['wheel', 'admins', 'gamers']), False)
+        eq_(c.user('jessie', home=False, groups=['wheel', 'admins', 'gamers']), False)
         c._cmd_quiet.assert_has_calls([call(['groups', 'jessie'])])
 
     def test_user_groups_changed(self):
         c._user_name_to_uid.return_value = 1003
         c._cmd_quiet.side_effect = ['jessie : jessie admins devs docker\n',
                                     None, None, None, None]
-        eq_(c.user('jessie', groups=['wheel', 'admins', 'gamers']), True)
+        eq_(c.user('jessie', home=False, groups=['wheel', 'admins', 'gamers']), True)
         c._cmd_quiet.assert_has_calls([call(['groups', 'jessie']),
                                        call(['gpasswd', '-a', 'jessie', 'gamers']),
                                        call(['gpasswd', '-a', 'jessie', 'wheel']),

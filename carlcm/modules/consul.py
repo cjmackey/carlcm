@@ -11,6 +11,13 @@ from .base import BaseModule
 # TODO: tls
 # https://www.digitalocean.com/community/tutorials/how-to-secure-consul-with-tls-encryption-on-ubuntu-14-04
 
+# TODO: configurable consul version number?
+
+# TODO: figure out how to put service definitions into this
+# http://www.consul.io/docs/agent/services.html
+# also, changing service definitions should only send a SIGHUP, not restart the process
+# ...maybe service definitions should be available at the Module level, so there's no race between consul and other modules' instantiations
+
 class ConsulModule(BaseModule):
 
     def __init__(self, encrypt, mode='client', servers=None, webui=False,
@@ -27,14 +34,16 @@ class ConsulModule(BaseModule):
         return ['unzip']
 
     def main(self, context):
-        context.user('consul', home='/var/consul', random_password=True)
+        context.user('consul', home='/var/consul', home_mode='750', random_password=True)
         self._acquire_consul(context)
         if self.webui:
             self._acquire_webui(context)
 
         context.file('/etc/consul.d/server/config.json',
+                     owner='root', group='consul', mode='640',
                      src_data=self._server_config(), triggers='consul')
         context.file('/etc/consul.d/client/config.json',
+                     owner='root', group='consul', mode='640',
                      src_data=self._client_config(), triggers='consul')
         context.file('/etc/init/consul.conf',
                      src_data=self._upstart_conf(), triggers='consul')
