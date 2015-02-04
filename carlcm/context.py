@@ -374,4 +374,4 @@ class Context(object):
             module.main(self)
         return self
 
-# TODO: rsync, line in file, git repo, apt sources, apt keys
+# TODO: rsync, git repo, apt sources, apt keys, ssh authorized_keys, cron
