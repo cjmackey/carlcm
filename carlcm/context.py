@@ -345,6 +345,21 @@ class Context(object):
 
         return self._after(not user_existed or home_changed or home_perm_changed or changing_groups, triggers)
 
+    def line_in_file(self, path, line, regexp, triggers=None, triggered_by=None):
+        if self._before(triggered_by): return False
+        if not self.os.path.isfile(path): return False
+        import re
+        if type(regexp) is str:
+            regexp = re.compile(regexp)
+        data = self._read_file(path)
+        lines = data.split('\n')
+        for ix in xrange(len(lines)):
+            if regexp.search(lines[ix]):
+                lines[ix] = line
+                break
+        data2 = '\n'.join(lines)
+        return self.file(path, src_data=data2)
+
     def add_modules(self, *args):
         self.modules += args
         return self

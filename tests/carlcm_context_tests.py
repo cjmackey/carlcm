@@ -94,6 +94,22 @@ class TestCarlCMContext(object):
         eq_(c.file('dir/subdir/', src_path='file.txt'), True)
         eq_(self.open('dir/subdir/file.txt', 'rb').read(), 'asdf')
 
+    def test_line_in_file_regexp_match(self):
+        eq_(c.line_in_file('existingfile', regexp='^as', line='blah'), True)
+        eq_(self.open('existingfile', 'rb').read(), 'blah')
+
+    def test_line_in_file_regexp_match_equal(self):
+        eq_(c.line_in_file('existingfile', regexp='^as', line='asdf'), False)
+        eq_(self.open('existingfile', 'rb').read(), 'asdf')
+
+    def test_line_in_file_regexp_nomatch(self):
+        eq_(c.line_in_file('existingfile', regexp='^bl', line='blah'), False)
+        eq_(self.open('existingfile', 'rb').read(), 'asdf')
+
+    def test_line_in_file_file_nonexistent(self):
+        eq_(c.line_in_file('nonexistentfile', regexp='^bl', line='blah'), False)
+        eq_(self.os.path.isfile('nonexistentfile'), False)
+
     def test_template_new_src_data(self):
         eq_(c.template('/file.txt', src_data='{{ x }}df', x='as'), True)
         eq_(self.open('/file.txt', 'rb').read(), 'asdf')
