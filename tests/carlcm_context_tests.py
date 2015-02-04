@@ -1,3 +1,7 @@
+
+from stat import S_ISDIR
+
+import fake_filesystem
 from nose.tools import *
 from mock import Mock, MagicMock, call
 
@@ -8,22 +12,21 @@ c = None
 class TestCarlCMContext(object):
 
     def setup(self):
+        self.fs = fake_filesystem.FakeFilesystem()
+        self.os = fake_filesystem.FakeOsModule(self.fs)
+        self.open = fake_filesystem.FakeFileOpen(self.fs)
         global c
-        c = carlcm.Context()
+        c = carlcm.Context(fake_os=self.os, fake_open=self.open)
         c._cmd = Mock()
         c._cmd_quiet = Mock()
-        c._isdir = Mock()
-        c._isfile = Mock()
-        c._mkdir_1 = Mock()
-        c._read_file = Mock()
-        c._write_file = Mock()
-        c._touch = Mock()
-        c._chmod = Mock()
-        c._chown = Mock()
-        c._stat = Mock()
         c._group_name_to_gid = Mock()
         c._user_name_to_uid = Mock()
         c._user_home = Mock()
+        with self.open('existingfile', 'wb') as f:
+            f.write('asdf')
+        self.os.mkdir('existingdir')
+        self.os.chmod('existingdir', 0712)
+        self.os.chown('existingdir', 37, 75)
 
     def test_cmd(self):
         eq_(c.cmd(['pwd']), True)
@@ -39,110 +42,69 @@ class TestCarlCMContext(object):
         c.cmd.assert_called_once_with('pwd', shell=True)
 
     def test_mkdir_already_exists(self):
-        c._isdir.return_value=True
-        eq_(c.mkdir('/path'), False)
-        c._isdir.assert_called_once_with('/path')
+        eq_(c.mkdir('existingdir'), False)
 
     def test_mkdir_simple_not_exists(self):
-        c._isdir.side_effect=[False, True]
-        c._isfile.return_value=False
+        eq_(self.os.path.isdir('/path'), False)
         eq_(c.mkdir('/path'), True)
-        c._isdir.assert_has_calls([call('/path'), call('/')])
-        c._isfile.assert_called_once_with('/path')
-        c._mkdir_1.assert_called_once_with('/path')
+        eq_(self.os.path.isdir('/path'), True)
 
     def test_mkdir_complex_not_exists(self):
-        c._isdir.side_effect=[False, False, True]
-        c._isfile.return_value=False
+        eq_(self.os.path.isdir('/pa/th'), False)
         eq_(c.mkdir('/pa/th'), True)
-        c._isdir.assert_has_calls([call('/pa/th'), call('/pa'), call('/')])
-        c._isfile.assert_has_calls([call('/pa/th'), call('/pa')])
-        c._mkdir_1.assert_has_calls([call('/pa'), call('/pa/th')])
+        eq_(self.os.path.isdir('/pa/th'), True)
 
     def test__apply_permissions_matched_num(self):
-        st = Mock(st_mode=0712, st_uid=37, st_gid=75)
-        c._stat.return_value = st
-        eq_(c._apply_permissions('path', 37, 75, '712'), False)
-        c._chmod.assert_has_calls([])
-        c._chown.assert_has_calls([])
+        eq_(c._apply_permissions('existingdir', 37, 75, '712'), False)
 
-    def test__apply_permissions_unmatched_num(self):
-        st = Mock(st_mode=0712, st_uid=37, st_gid=75)
-        c._stat.return_value = st
-        eq_(c._apply_permissions('path', 37, 76, '712'), True)
-        c._chmod.assert_has_calls([])
-        c._chown.assert_has_calls([call('path', 37, 76)])
+    def test__apply_permissions_unmatched_uid(self):
+        eq_(c._apply_permissions('existingdir', 38, 75, '712'), True)
+        eq_(self.os.stat('existingdir').st_uid, 38)
+
+    def test__apply_permissions_unmatched_gid(self):
+        eq_(c._apply_permissions('existingdir', 37, 76, '712'), True)
+        eq_(self.os.stat('existingdir').st_gid, 76)
+
+    def test__apply_permissions_unmatched_mode(self):
+        eq_(c._apply_permissions('existingdir', 37, 76, '715'), True)
+        eq_(self.os.stat('existingdir').st_mode & 0777, 0715)
 
     def test_file_already_exists_and_equal_src_data(self):
-        c._isfile.return_value=True
-        c._read_file.return_value='asdf'
-        eq_(c.file('/file.txt', src_data='asdf'), False)
-        c._isfile.assert_called_once_with('/file.txt')
-        c._read_file.assert_called_once_with('/file.txt')
-        c._write_file.assert_calls([])
+        eq_(c.file('existingfile', src_data='asdf'), False)
 
     def test_file_already_exists_and_equal_src_path(self):
-        c._isfile.return_value=True
-        c._read_file.return_value='asdf'
-        eq_(c.file('/file.txt', src_path='/asdf'), False)
-        c._isfile.assert_called_once_with('/file.txt')
-        c._read_file.assert_has_calls([call('/file.txt'), call('/asdf')])
-        c._write_file.assert_calls([])
+        with self.open('src', 'wb') as f: f.write('asdf')
+        eq_(c.file('existingfile', src_path='src'), False)
 
     def test_file_already_exists_and_unequal_src_data(self):
-        c._isfile.return_value=True
-        c._read_file.return_value='fasdf'
-        eq_(c.file('/file.txt', src_data='asdf'), True)
-        c._isfile.assert_called_once_with('/file.txt')
-        c._read_file.assert_called_once_with('/file.txt')
-        c._write_file.assert_called_once_with('/file.txt', 'asdf')
+        eq_(c.file('existingfile', src_data='ff'), True)
+        eq_(self.open('existingfile', 'rb').read(), 'ff')
 
     def test_file_already_exists_and_unequal_src_path(self):
-        c._isfile.return_value=True
-        c._read_file.side_effect=['fasdf', 'asdf']
-        eq_(c.file('/file.txt', src_path='/asdf'), True)
-        c._isfile.assert_called_once_with('/file.txt')
-        c._read_file.assert_has_calls([call('/file.txt'), call('/asdf')])
-        c._write_file.assert_called_once_with('/file.txt', 'asdf')
+        with self.open('src', 'wb') as f: f.write('ff')
+        eq_(c.file('existingfile', src_path='src'), True)
+        eq_(self.open('existingfile', 'rb').read(), 'ff')
 
     def test_file_new_src_data(self):
-        c._isfile.return_value = False
-        c._read_file.return_value = ''
-        c._mkdir = Mock()
         eq_(c.file('/file.txt', src_data='asdf'), True)
-        c._isfile.assert_called_once_with('/file.txt')
-        c._touch.assert_called_once_with('/file.txt')
-        c._read_file.assert_called_once_with('/file.txt')
-        c._write_file.assert_called_once_with('/file.txt', 'asdf')
+        eq_(self.open('/file.txt', 'rb').read(), 'asdf')
 
     def test_file_new_src_path_subdir(self):
-        c._isfile.return_value = False
-        c._read_file.side_effect = ['', 'asdf']
-        c._mkdir = Mock()
-        eq_(c.file('/', src_path='file.txt'), True)
-        c._isfile.assert_called_once_with('/file.txt')
-        c._touch.assert_called_once_with('/file.txt')
-        c._read_file.assert_has_calls([call('/file.txt'), call('file.txt')])
-        c._write_file.assert_called_once_with('/file.txt', 'asdf')
+        with self.open('file.txt', 'wb') as f: f.write('asdf')
+        eq_(c.file('dir/subdir/', src_path='file.txt'), True)
+        eq_(self.open('dir/subdir/file.txt', 'rb').read(), 'asdf')
 
     def test_template_new_src_data(self):
-        c._isfile.return_value = True
-        c._read_file.return_value = ''
         eq_(c.template('/file.txt', src_data='{{ x }}df', x='as'), True)
-        c._write_file.assert_called_once_with('/file.txt', 'asdf')
+        eq_(self.open('/file.txt', 'rb').read(), 'asdf')
 
     def test_template_new_src_path(self):
-        c._isfile.return_value = True
-        c._read_file.side_effect = ['{{ x }}df', '']
-        eq_(c.template('/file.txt', src_path='asdf.j2', x='as'), True)
-        c._read_file.assert_has_calls([call('asdf.j2'), call('/file.txt')])
-        c._write_file.assert_called_once_with('/file.txt', 'asdf')
+        with self.open('src.j2', 'wb') as f: f.write('{{ x }}df')
+        eq_(c.template('/file.txt', src_path='src.j2', x='as'), True)
+        eq_(self.open('/file.txt', 'rb').read(), 'asdf')
 
     def test_template_match_src_data(self):
-        c._isfile.return_value = True
-        c._read_file.return_value = 'asdf'
-        eq_(c.template('/file.txt', src_data='{{ x }}df', x='as'), False)
-        c._write_file.assert_has_calls([])
+        eq_(c.template('existingfile', src_data='{{ x }}df', x='as'), False)
 
     def test_triggers(self):
         eq_(c.cmd([], triggered_by='t1'), False)
@@ -154,8 +116,7 @@ class TestCarlCMContext(object):
         eq_(c.cmd([], triggered_by=['t3']), True)
         eq_(c.cmd([], triggered_by='t4', triggers='t5'), False)
         eq_(c.cmd([], triggered_by='t5'), False)
-        c._isdir.return_value=True
-        eq_(c.mkdir('/path', triggers='t6'), False)
+        eq_(c.mkdir('existingdir', triggers='t6'), False)
         eq_(c.cmd([], triggered_by='t6'), False)
 
     def test_group_exists(self):
@@ -184,38 +145,43 @@ class TestCarlCMContext(object):
     def test_user_new(self):
         c._user_name_to_uid.return_value = None
         c._user_home.return_value = '/home/jessie'
-        c._mkdir = Mock()
-        c._apply_permissions = Mock()
+        c._group_name_to_gid = Mock(side_effect=[76])
+        c._user_name_to_uid = Mock(side_effect=[None, 31])
         eq_(c.user('jessie'), True)
-        c._user_name_to_uid.assert_called_once_with('jessie')
+        c._user_name_to_uid.assert_has_calls([call('jessie'), call('jessie')])
         c._cmd_quiet.assert_called_once_with(['useradd', '-U', 'jessie'])
-        c._mkdir.assert_called_once_with('/home/jessie')
-        c._apply_permissions.assert_called_once_with('/home/jessie', 'jessie',
-                                                     'jessie', '755')
+        eq_(self.os.path.isdir('/home/jessie'), True)
+        eq_(self.os.stat('/home/jessie').st_mode & 0777, 0755)
+        eq_(self.os.stat('/home/jessie').st_uid, 31)
+        eq_(self.os.stat('/home/jessie').st_gid, 76)
 
     def test_user_new_homeless(self):
         c._user_name_to_uid.return_value = None
         eq_(c.user('jessie', home=False), True)
         c._cmd_quiet.assert_called_once_with(['useradd', '-M', '-U', 'jessie'])
+        eq_(self.os.path.isdir('/home/jessie'), False)
 
     def test_user_new_homed(self):
         c._user_name_to_uid.return_value = None
         c._user_home.return_value = '/var/jessie'
-        c._mkdir = Mock()
-        c._apply_permissions = Mock()
+        c._group_name_to_gid = Mock(side_effect=[76])
+        c._user_name_to_uid = Mock(side_effect=[None, 31])
         eq_(c.user('jessie', home='/var/jessie'), True)
+        c._user_name_to_uid.assert_has_calls([call('jessie'), call('jessie')])
         c._cmd_quiet.assert_called_once_with(['useradd', '-d', '/var/jessie',
                                               '-U', 'jessie'])
-        c._mkdir.assert_called_once_with('/var/jessie')
-        c._apply_permissions.assert_called_once_with('/var/jessie', 'jessie',
-                                                     'jessie', '755')
-    '''
+        eq_(self.os.path.isdir('/home/jessie'), False)
+        eq_(self.os.path.isdir('/var/jessie'), True)
+        eq_(self.os.stat('/var/jessie').st_mode & 0777, 0755)
+        eq_(self.os.stat('/var/jessie').st_uid, 31)
+        eq_(self.os.stat('/var/jessie').st_gid, 76)
+    """
     TODO!
     def test_user_exists_authorized_keys(self):
         c._user_name_to_uid.return_value = 1002
         eq_(c.group('jessie', authorized_keys=['blahblah']), False)
         c._cmd_quiet.assert_has_calls([])
-    '''
+    """
     def test_user_groups_unchanged(self):
         c._user_name_to_uid.return_value = 1003
         c._cmd_quiet.side_effect = ['jessie : jessie admins wheel gamers\n']

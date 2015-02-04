@@ -43,3 +43,6 @@ c.add_modules(carlcm.DockerModule(),
                                   mode='server', webui=True))
 c.run_modules()
 ```
+
+That would set up the machine with docker, a user named carl, and a
+consul server.

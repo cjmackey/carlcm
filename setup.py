@@ -10,7 +10,7 @@ config = {
     'download_url': 'Where to download it.',
     'author_email': 'carljmackey@gmail.com',
     'version': '0.1',
-    'install_requires': ['nose', 'mock', 'coverage', 'jinja2'],
+    'install_requires': ['nose', 'mock', 'coverage', 'jinja2', 'pyfakefs'],
     'packages': find_packages(),
     'scripts': [],
     'name': 'carlcm'

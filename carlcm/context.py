@@ -3,7 +3,7 @@ import errno
 import filecmp
 import grp
 import json
-import os
+import os as real_os
 import pwd
 import shutil
 from stat import S_IMODE
@@ -14,7 +14,9 @@ class Context(object):
     '''
     Most methods return True if something was modified, and False otherwise
     '''
-    def __init__(self):
+    def __init__(self, fake_os=None, fake_open=None):
+        self.os = fake_os or real_os
+        self.open = fake_open or open
         self.triggers = set()
         self.package_cache = None
         self.modules = []
@@ -88,13 +90,13 @@ class Context(object):
         if self._before(triggered_by): return False
         new_packages = [p for p in packages if p not in self.current_packages()]
         if len(new_packages) > 0:
-            old_env = os.getenv('DEBIAN_FRONTEND', None)
-            os.environ['DEBIAN_FRONTEND'] = 'noninteractive'
+            old_env = self.os.getenv('DEBIAN_FRONTEND', None)
+            self.os.environ['DEBIAN_FRONTEND'] = 'noninteractive'
             self._cmd_quiet(['apt-get', 'install', '-y'] + sorted(new_packages))
             if old_env:
-                os.environ['DEBIAN_FRONTEND'] = old_env
+                self.os.environ['DEBIAN_FRONTEND'] = old_env
             else:
-                del os.environ['DEBIAN_FRONTEND']
+                del self.os.environ['DEBIAN_FRONTEND']
             self.package_cache = None
         return self._after(len(new_packages) > 0, triggers)
 
@@ -107,33 +109,33 @@ class Context(object):
         return self._after(True, triggers)
 
     def _isfile(self, f):
-        return os.path.isfile(f)
+        return self.os.path.isfile(f)
 
     def _mkdir_1(self, d):
-        return os.mkdir(d)
+        return self.os.mkdir(d)
 
     def _mkdir(self, d):
         """
         Based on http://code.activestate.com/recipes/82465-a-friendly-mkdir/
         """
-        d = os.path.realpath(d)
+        d = self.os.path.realpath(d)
         id = self._isdir(d)
         if id:
             return False
         elif self._isfile(d):
             raise OSError("file exists: " % d)
         else:
-            h, t = os.path.split(d)
+            h, t = self.os.path.split(d)
             if h: self._mkdir(h)
             if t: self._mkdir_1(d)
         return True
 
     def _chmod(self, path, mode):
-        os.chmod(path, mode)
+        self.os.chmod(path, mode)
     def _chown(self, path, owner, group):
-        os.chown(path, owner, group)
+        self.os.chown(path, owner, group)
     def _stat(self, path):
-        return os.stat(path)
+        return self.os.stat(path)
     def _user_name_to_uid(self, user):
         uid = None
         try:
@@ -178,26 +180,26 @@ class Context(object):
         return not matched
 
     def _isdir(self, path):
-        return os.path.isdir(path)
+        return self.os.path.isdir(path)
 
     def mkdir(self, path, owner=None, group=None, mode=None,
               triggers=None, triggered_by=None):
         if self._before(triggered_by): return False
-        path = os.path.realpath(path)
+        path = self.os.path.realpath(path)
         is_new = self._mkdir(path)
         perm_change = self._apply_permissions(path, owner, group, mode)
         return self._after(is_new or perm_change, triggers)
 
     def _touch(self, path):
-        self._mkdir(os.path.dirname(path))
-        with open(path, 'a'):
-            os.utime(path, None)
+        self._mkdir(self.os.path.dirname(path))
+        with self.open(path, 'a') as f:
+            f.write('')
 
     def _read_file(self, path):
-        return open(path, 'rb').read()
+        return self.open(path, 'rb').read()
 
     def _write_file(self, path, data):
-        with open(path, 'wb') as f:
+        with self.open(path, 'wb') as f:
             f.truncate()
             f.write(data)
 
@@ -237,9 +239,9 @@ class Context(object):
         assert bool(src_path) != bool(src_data)
         if self._before(triggered_by): return False
         if dest_path[-1:] == '/' and src_path:
-            _, tail = os.path.split(src_path)
+            _, tail = self.os.path.split(src_path)
             dest_path += tail
-        dest_path = os.path.realpath(dest_path)
+        dest_path = self.os.path.realpath(dest_path)
         file_existed = self._isfile(dest_path)
         if not file_existed:
             self._touch(dest_path)
@@ -335,7 +337,7 @@ class Context(object):
 
         # TODO: need to be able to check if the password was the same or not
         if random_password:
-            password = os.urandom(20).encode('hex')
+            password = real_os.urandom(20).encode('hex')
         if password is not None:
             self._cmd_in(['chpasswd'], username + ':' + password + '\n')
         if encrypted_password is not None:
