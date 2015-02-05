@@ -94,21 +94,58 @@ class TestCarlCMContext(object):
         eq_(c.file('dir/subdir/', src_path='file.txt'), True)
         eq_(self.open('dir/subdir/file.txt', 'rb').read(), 'asdf')
 
+    def test_line_in_file_exists(self):
+        c.file('f', src_data='asdf\n')
+        eq_(c.line_in_file('f', 'blah'), True)
+        eq_(self.open('f', 'rb').read(), 'asdf\nblah\n')
+
+    def test_line_in_file_exists_and_matches(self):
+        c.file('f', src_data='asdf\n')
+        eq_(c.line_in_file('f', 'asdf'), False)
+        eq_(self.open('f', 'rb').read(), 'asdf\n')
+
+    def test_line_in_file_exists_no_newline(self):
+        c.file('f', src_data='asdf')
+        eq_(c.line_in_file('f', 'blah'), True)
+        eq_(self.open('f', 'rb').read(), 'asdf\nblah\n')
+
+    def test_line_in_file_absent_match(self):
+        c.file('f', src_data='asdf\n')
+        eq_(c.line_in_file('f', 'asdf', state='absent'), True)
+        eq_(self.open('f', 'rb').read(), '\n')
+
+    def test_line_in_file_absent_nomatch(self):
+        c.file('f', src_data='asdf\n')
+        eq_(c.line_in_file('f', 'fasdf', state='absent'), False)
+        eq_(self.open('f', 'rb').read(), 'asdf\n')
+
     def test_line_in_file_regexp_match(self):
-        eq_(c.line_in_file('existingfile', regexp='^as', line='blah'), True)
-        eq_(self.open('existingfile', 'rb').read(), 'blah')
+        c.file('f', src_data='asdf')
+        eq_(c.line_in_file('f', regexp='^as', line='blah'), True)
+        eq_(self.open('f', 'rb').read(), 'blah\n')
 
     def test_line_in_file_regexp_match_equal(self):
-        eq_(c.line_in_file('existingfile', regexp='^as', line='asdf'), False)
-        eq_(self.open('existingfile', 'rb').read(), 'asdf')
+        c.file('f', src_data='asdf\n')
+        eq_(c.line_in_file('f', regexp='^as', line='asdf'), False)
+        eq_(self.open('f', 'rb').read(), 'asdf\n')
 
     def test_line_in_file_regexp_nomatch(self):
-        eq_(c.line_in_file('existingfile', regexp='^bl', line='blah'), False)
-        eq_(self.open('existingfile', 'rb').read(), 'asdf')
+        eq_(c.line_in_file('existingfile', regexp='^bl', line='blah'), True)
+        eq_(self.open('existingfile', 'rb').read(), 'asdf\nblah\n')
 
+    def test_line_in_file_regexp_absent_match(self):
+        c.file('f', src_data='asdf\n')
+        eq_(c.line_in_file('f', regexp='^as', state='absent'), True)
+        eq_(self.open('f', 'rb').read(), '\n')
+
+    def test_line_in_file_regexp_absent_nomatch(self):
+        c.file('f', src_data='asdf\n')
+        eq_(c.line_in_file('f', regexp='^b', state='absent'), False)
+        eq_(self.open('f', 'rb').read(), 'asdf\n')
+
+    @raises(ValueError)
     def test_line_in_file_file_nonexistent(self):
-        eq_(c.line_in_file('nonexistentfile', regexp='^bl', line='blah'), False)
-        eq_(self.os.path.isfile('nonexistentfile'), False)
+        c.line_in_file('nonexistentfile', regexp='^bl', line='blah')
 
     def test_template_new_src_data(self):
         eq_(c.template('/file.txt', src_data='{{ x }}df', x='as'), True)

@@ -236,7 +236,7 @@ class Context(object):
              triggers=None, triggered_by=None):
         # NOTE: this writes the file in-place currently, which is not
         # great for the stability of reads to that file.
-        assert bool(src_path) != bool(src_data)
+        assert bool(src_path is not None) != bool(src_data is not None)
         if self._before(triggered_by): return False
         if dest_path[-1:] == '/' and src_path:
             _, tail = self.os.path.split(src_path)
@@ -345,19 +345,44 @@ class Context(object):
 
         return self._after(not user_existed or home_changed or home_perm_changed or changing_groups, triggers)
 
-    def line_in_file(self, path, line, regexp, triggers=None, triggered_by=None):
+    def line_in_file(self, path, line=None, regexp=None, state='present',
+                     enforce_trailing_newline=True,
+                     triggers=None, triggered_by=None):
         if self._before(triggered_by): return False
-        if not self.os.path.isfile(path): return False
-        import re
+        if not self.os.path.isfile(path):
+            raise ValueError('path %s is not a file!' % path)
+        assert state in ['present', 'absent']
+        if state == 'present': assert line is not None
+        if state == 'absent': assert bool(regexp is not None) != bool(line is not None)
         if type(regexp) is str:
+            import re
             regexp = re.compile(regexp)
         data = self._read_file(path)
         lines = data.split('\n')
-        for ix in xrange(len(lines)):
-            if regexp.search(lines[ix]):
-                lines[ix] = line
-                break
+        line_ix = None
+        if regexp is not None:
+            for ix in xrange(len(lines)):
+                if regexp.search(lines[ix]):
+                    line_ix = ix
+        if line_ix is None:
+            for ix in xrange(len(lines)):
+                if lines[ix] == line:
+                    line_ix = ix
+        if state == 'present':
+            assert line is not None
+            if line_ix is None:
+                line_ix = len(lines)
+                if len(lines) > 0 and lines[-1] == '':
+                    line_ix -= 1
+            assert line_ix <= len(lines)
+            if line_ix == len(lines):
+                lines += ['']
+            lines[line_ix] = line
+        if state == 'absent' and line_ix is not None:
+            lines = lines[:line_ix] + lines[line_ix+1:]
         data2 = '\n'.join(lines)
+        if enforce_trailing_newline and (len(data2) == 0 or data2[-1] != '\n'):
+            data2 += '\n'
         return self.file(path, src_data=data2)
 
     def add_modules(self, *args):
