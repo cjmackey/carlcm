@@ -108,42 +108,29 @@ class Context(object):
             self._cmd(cmd, **kwargs)
         return self._after(True, triggers)
 
-    def _isfile(self, f):
-        return self.os.path.isfile(f)
-
-    def _mkdir_1(self, d):
-        return self.os.mkdir(d)
-
     def _mkdir(self, d):
         """
         Based on http://code.activestate.com/recipes/82465-a-friendly-mkdir/
         """
         d = self.os.path.realpath(d)
-        id = self._isdir(d)
+        id = self.os.path.isdir(d)
         if id:
             return False
-        elif self._isfile(d):
+        elif self.os.path.isfile(d):
             raise OSError("file exists: " % d)
         else:
             h, t = self.os.path.split(d)
             if h: self._mkdir(h)
-            if t: self._mkdir_1(d)
+            if t: self.os.mkdir(d)
         return True
 
-    def _chmod(self, path, mode):
-        self.os.chmod(path, mode)
-    def _chown(self, path, owner, group):
-        self.os.chown(path, owner, group)
-    def _stat(self, path):
-        return self.os.stat(path)
     def _user_name_to_uid(self, user):
-        uid = None
         try:
-            uid = pwd.getpwnam(user).pw_uid
-        except KeyError: pass
-        if uid is None and user == 'root':
-            uid = 0
-        return uid
+            return pwd.getpwnam(user).pw_uid
+        except KeyError:
+            if user == 'root':
+                return 0
+            return None
     def _group_name_to_gid(self, group):
         try:
             return grp.getgrnam(group).gr_gid
@@ -155,12 +142,12 @@ class Context(object):
         return pwd.getpwnam(user).pw_dir
 
     def _apply_permissions(self, path, owner, group, mode):
-        stat = self._stat(path)
+        stat = self.os.stat(path)
         matched = True
         if mode is not None:
             if type(mode) == str:
                 mode = int(mode, 8)
-            self._chmod(path, mode)
+            self.os.chmod(path, mode)
             if S_IMODE(stat.st_mode) != mode:
                 matched = False
         if owner is not None or group is not None:
@@ -174,13 +161,10 @@ class Context(object):
                 group = self._group_name_to_gid(group)
                 if group is None:
                     raise Exception('no such group!')
-            self._chown(path, owner, group)
+            self.os.chown(path, owner, group)
             if owner >= 0 and stat.st_uid != owner or group >= 0 and stat.st_gid != group:
                 matched = False
         return not matched
-
-    def _isdir(self, path):
-        return self.os.path.isdir(path)
 
     def mkdir(self, path, owner=None, group=None, mode=None,
               triggers=None, triggered_by=None):
@@ -214,7 +198,7 @@ class Context(object):
         # download once, and never check again.  Is that desired?
         # Should it always download and compare the file?
         if self._before(triggered_by): return False
-        file_new = not self._isfile(path)
+        file_new = not self.os.path.isfile(path)
         if file_new:
             self._touch(path)
         perm_change = self._apply_permissions(path, owner, group, mode)
@@ -242,7 +226,7 @@ class Context(object):
             _, tail = self.os.path.split(src_path)
             dest_path += tail
         dest_path = self.os.path.realpath(dest_path)
-        file_existed = self._isfile(dest_path)
+        file_existed = self.os.path.isfile(dest_path)
         if not file_existed:
             self._touch(dest_path)
         perm_change = self._apply_permissions(dest_path, owner, group, mode)
