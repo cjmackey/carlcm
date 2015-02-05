@@ -1,5 +1,5 @@
 
-from stat import S_ISDIR
+from stat import S_ISDIR, S_IMODE
 
 import fake_filesystem
 from nose.tools import *
@@ -67,7 +67,7 @@ class TestCarlCMContext(object):
 
     def test__apply_permissions_unmatched_mode(self):
         eq_(c._apply_permissions('existingdir', 37, 76, '715'), True)
-        eq_(self.os.stat('existingdir').st_mode & 0777, 0715)
+        eq_(S_IMODE(self.os.stat('existingdir').st_mode), 0715)
 
     def test_file_already_exists_and_equal_src_data(self):
         eq_(c.file('existingfile', src_data='asdf'), False)
@@ -251,3 +251,32 @@ class TestCarlCMContext(object):
                                        call(['gpasswd', '-a', 'jessie', 'wheel']),
                                        call(['gpasswd', '-d', 'jessie', 'devs']),
                                        call(['gpasswd', '-d', 'jessie', 'docker'])])
+
+    def test_current_packages(self):
+        c._cmd_quiet.side_effect = ['''
+Desired=Unknown/Install/Remove/Purge/Hold
+| Status=Not/Inst/Conf-files/Unpacked/halF-conf/Half-inst/trig-aWait/Trig-pend
+|/ Err?=(none)/Reinst-required (Status,Err: uppercase=bad)
+||/ Name                                                  Version                                             Architecture Description
++++-=====================================================-===================================================-============-===============================================================================
+ii  ack-grep                                              2.12-1                                              all          grep-like program specifically for large source trees
+ii  acpid                                                 1:2.0.21-1ubuntu2                                   amd64        Advanced Configuration and Power Interface event daemon
+''']
+        eq_(c.current_packages(), {'ack-grep':'2.12-1','acpid':'1:2.0.21-1ubuntu2'})
+        eq_(c.current_packages(), {'ack-grep':'2.12-1','acpid':'1:2.0.21-1ubuntu2'})
+        c._cmd_quiet.assert_has_calls([call(['dpkg', '-l'])])
+
+    def test_packages_new(self):
+        c.current_packages = Mock(return_value={})
+        eq_(c.packages(['ack-grep', 'acpid']), True)
+        c._cmd_quiet.assert_called_once_with(['apt-get', 'install', '-y', 'ack-grep', 'acpid'])
+
+    def test_packages_present(self):
+        c.current_packages = Mock(return_value={'ack-grep':'2.12-1','acpid':'1:2.0.21-1ubuntu2'})
+        eq_(c.packages(['ack-grep', 'acpid']), False)
+        c._cmd_quiet.assert_has_calls([])
+
+    def test_packages_mixed(self):
+        c.current_packages = Mock(return_value={'ack-grep':'2.12-1'})
+        eq_(c.packages(['ack-grep', 'acpid']), True)
+        c._cmd_quiet.assert_called_once_with(['apt-get', 'install', '-y', 'acpid'])

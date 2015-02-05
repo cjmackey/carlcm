@@ -5,6 +5,7 @@ import grp
 import json
 import os as real_os
 import pwd
+import re
 import shutil
 from stat import S_IMODE
 import subprocess
@@ -156,11 +157,11 @@ class Context(object):
             if type(owner) == str:
                 owner = self._user_name_to_uid(owner)
                 if owner is None:
-                    raise Exception('no such user!')
+                    raise ValueError('no such user!')
             if type(group) == str:
                 group = self._group_name_to_gid(group)
                 if group is None:
-                    raise Exception('no such group!')
+                    raise ValueError('no such group!')
             self.os.chown(path, owner, group)
             if owner >= 0 and stat.st_uid != owner or group >= 0 and stat.st_gid != group:
                 matched = False
@@ -339,7 +340,6 @@ class Context(object):
         if state == 'present': assert line is not None
         if state == 'absent': assert bool(regexp is not None) != bool(line is not None)
         if type(regexp) is str:
-            import re
             regexp = re.compile(regexp)
         data = self._read_file(path)
         lines = data.split('\n')
