@@ -12,16 +12,10 @@ c = None
 class TestCarlCMContext(object):
 
     def setup(self):
-        self.fs = fake_filesystem.FakeFilesystem()
-        self.os = fake_filesystem.FakeOsModule(self.fs)
-        self.open = fake_filesystem.FakeFileOpen(self.fs)
         global c
-        c = carlcm.Context(fake_os=self.os, fake_open=self.open)
-        c._cmd = Mock()
-        c._cmd_quiet = Mock()
-        c._group_name_to_gid = Mock()
-        c._user_name_to_uid = Mock()
-        c._user_home = Mock()
+        c = carlcm.MockContext()
+        self.open = c.open
+        self.os = c.os
         with self.open('existingfile', 'wb') as f:
             f.write('asdf')
         self.os.mkdir('existingdir')
@@ -172,62 +166,61 @@ class TestCarlCMContext(object):
         eq_(c.mkdir('existingdir', triggers='t6'), False)
         eq_(c.cmd([], triggered_by='t6'), False)
 
+    def test__groupadd_cmd(self):
+        eq_(c._groupadd_cmd('agroup'), ['groupadd', 'agroup'])
+        eq_(c._groupadd_cmd('agroup', gid=45), ['groupadd', '-g', '45', 'agroup'])
+
+    def test__useradd_cmd(self):
+        eq_(c._useradd_cmd('auser'), ['useradd', '-U', 'auser'])
+        eq_(c._useradd_cmd('auser', gid=45), ['useradd', '-g', '45', '-U', 'auser'])
+        eq_(c._useradd_cmd('auser', uid=45), ['useradd', '-u', '45', '-U', 'auser'])
+        eq_(c._useradd_cmd('auser', home=False), ['useradd', '-M', '-U', 'auser'])
+        eq_(c._useradd_cmd('auser', home='/var/auser'), ['useradd', '-d', '/var/auser', '-U', 'auser'])
+        eq_(c._useradd_cmd('auser', shell='/bin/zsh'), ['useradd', '-s', '/bin/zsh', '-U', 'auser'])
+        eq_(c._useradd_cmd('auser', comment='blah'), ['useradd', '-c', 'blah', '-U', 'auser'])
+
     def test_group_exists(self):
-        c._group_name_to_gid.return_value = 1003
+        c.groups += [{'name':'group', 'id': 1003}]
         eq_(c.group('group'), False)
-        c._group_name_to_gid.assert_called_once_with('group')
-        c._cmd_quiet.assert_has_calls([])
 
     def test_group_new(self):
-        c._group_name_to_gid.return_value = None
         eq_(c.group('group'), True)
-        c._group_name_to_gid.assert_called_once_with('group')
-        c._cmd_quiet.assert_called_once_with(['groupadd', 'group'])
+        eq_(c.groups[1], {'name':'group', 'id': 1000})
 
     def test_group_new_with_gid(self):
-        c._group_name_to_gid.return_value = None
         eq_(c.group('group', gid=74), True)
-        c._group_name_to_gid.assert_called_once_with('group')
-        c._cmd_quiet.assert_called_once_with(['groupadd', '-g', '74', 'group'])
+        eq_(c.groups[1], {'name':'group', 'id': 74})
 
     def test_user_exists(self):
-        c._user_name_to_uid.return_value = 1002
-        eq_(c.group('jessie'), False)
-        c._cmd_quiet.assert_has_calls([])
+        c.users += [{'name':'jessie', 'id':1002, 'home':None}]
+        eq_(c.user('jessie', home=False), False)
 
     def test_user_new(self):
-        c._user_name_to_uid.return_value = None
-        c._user_home.return_value = '/home/jessie'
-        c._group_name_to_gid = Mock(side_effect=[76])
-        c._user_name_to_uid = Mock(side_effect=[None, 31])
         eq_(c.user('jessie'), True)
-        c._user_name_to_uid.assert_has_calls([call('jessie'), call('jessie')])
-        c._cmd_quiet.assert_called_once_with(['useradd', '-U', 'jessie'])
+        eq_(c.users[1]['name'], 'jessie')
+        eq_(c.users[1]['groups'], ['jessie'])
+        eq_(c.groups[1]['name'], 'jessie')
         eq_(self.os.path.isdir('/home/jessie'), True)
-        eq_(self.os.stat('/home/jessie').st_mode & 0777, 0755)
-        eq_(self.os.stat('/home/jessie').st_uid, 31)
-        eq_(self.os.stat('/home/jessie').st_gid, 76)
+        eq_(S_IMODE(self.os.stat('/home/jessie').st_mode), 0755)
+        eq_(self.os.stat('/home/jessie').st_uid, 1000)
+        eq_(self.os.stat('/home/jessie').st_gid, 1000)
 
     def test_user_new_homeless(self):
-        c._user_name_to_uid.return_value = None
         eq_(c.user('jessie', home=False), True)
-        c._cmd_quiet.assert_called_once_with(['useradd', '-M', '-U', 'jessie'])
         eq_(self.os.path.isdir('/home/jessie'), False)
 
     def test_user_new_homed(self):
-        c._user_name_to_uid.return_value = None
-        c._user_home.return_value = '/var/jessie'
-        c._group_name_to_gid = Mock(side_effect=[76])
-        c._user_name_to_uid = Mock(side_effect=[None, 31])
-        eq_(c.user('jessie', home='/var/jessie'), True)
-        c._user_name_to_uid.assert_has_calls([call('jessie'), call('jessie')])
-        c._cmd_quiet.assert_called_once_with(['useradd', '-d', '/var/jessie',
-                                              '-U', 'jessie'])
+        eq_(c.user('jessie', home='/var/jessie', uid=31, gid=76, home_mode='750'), True)
         eq_(self.os.path.isdir('/home/jessie'), False)
         eq_(self.os.path.isdir('/var/jessie'), True)
-        eq_(self.os.stat('/var/jessie').st_mode & 0777, 0755)
+        eq_(S_IMODE(self.os.stat('/var/jessie').st_mode), 0750)
         eq_(self.os.stat('/var/jessie').st_uid, 31)
         eq_(self.os.stat('/var/jessie').st_gid, 76)
+
+    def test_user_new_grouped(self):
+        eq_(c.user('jessie', groups=['agroup', 'bgroup']), True)
+        eq_(c.users[1]['name'], 'jessie')
+        eq_(c.users[1]['groups'], ['agroup', 'bgroup', 'jessie'])
     """
     TODO!
     def test_user_exists_authorized_keys(self):
@@ -236,21 +229,15 @@ class TestCarlCMContext(object):
         c._cmd_quiet.assert_has_calls([])
     """
     def test_user_groups_unchanged(self):
-        c._user_name_to_uid.return_value = 1003
-        c._cmd_quiet.side_effect = ['jessie : jessie admins wheel gamers\n']
+        c.users += [{'name':'jessie', 'id':1000,
+                     'groups':['wheel', 'admins', 'gamers', 'jessie']}]
         eq_(c.user('jessie', home=False, groups=['wheel', 'admins', 'gamers']), False)
-        c._cmd_quiet.assert_has_calls([call(['groups', 'jessie'])])
 
     def test_user_groups_changed(self):
-        c._user_name_to_uid.return_value = 1003
-        c._cmd_quiet.side_effect = ['jessie : jessie admins devs docker\n',
-                                    None, None, None, None]
+        c.users += [{'name':'jessie', 'id':1000,
+                     'groups':['devs', 'admins', 'gamers', 'jessie']}]
         eq_(c.user('jessie', home=False, groups=['wheel', 'admins', 'gamers']), True)
-        c._cmd_quiet.assert_has_calls([call(['groups', 'jessie']),
-                                       call(['gpasswd', '-a', 'jessie', 'gamers']),
-                                       call(['gpasswd', '-a', 'jessie', 'wheel']),
-                                       call(['gpasswd', '-d', 'jessie', 'devs']),
-                                       call(['gpasswd', '-d', 'jessie', 'docker'])])
+        eq_(c.users[1]['groups'], ['admins', 'gamers', 'jessie', 'wheel'])
 
     def test_current_packages(self):
         c._cmd_quiet.side_effect = ['''

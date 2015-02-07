@@ -7,17 +7,20 @@ import os as real_os
 import pwd
 import re
 import shutil
-from stat import S_IMODE
+from stat import S_IMODE, S_ISDIR
 import subprocess
 import urllib
+
+import fake_filesystem
+from mock import Mock
 
 class Context(object):
     '''
     Most methods return True if something was modified, and False otherwise
     '''
-    def __init__(self, fake_os=None, fake_open=None):
-        self.os = fake_os or real_os
-        self.open = fake_open or open
+    def __init__(self, _os=None, _open=None):
+        self.os = _os or real_os
+        self.open = _open or open
         self.triggers = set()
         self.package_cache = None
         self.modules = []
@@ -251,6 +254,7 @@ class Context(object):
         raise ValueError('no matching template engine!')
 
     def jinja2(self, dest_path, src_path=None, src_data=None,
+               owner=None, group=None, mode=None,
                template_parameters=None, triggers=None, triggered_by=None, **kwargs):
         import jinja2
         if self._before(triggered_by): return False
@@ -261,19 +265,61 @@ class Context(object):
             src_data = self._read_file(src_path)
         # todo: also pass perms
         return self.file(dest_path = dest_path,
+                         owner=owner, group=group, mode=mode,
                          src_data = jinja2.Template(src_data).render(template_parameters),
                          triggers = triggers)
+
+    def _groupadd_cmd(self, groupname, gid=None):
+        cmd = ['groupadd']
+        if gid is not None:
+            cmd += ['-g', str(gid)]
+        cmd += [groupname]
+        return cmd
+
+    def _groupadd(self, groupname, gid=None):
+        self._cmd_quiet(self._groupadd_cmd(groupname, gid))
 
     def group(self, groupname, gid=None, triggers=None, triggered_by=None):
         if self._before(triggered_by): return False
         group_existed = bool(self._group_name_to_gid(groupname))
         if not group_existed:
-            cmd = ['groupadd']
-            if gid is not None:
-                cmd += ['-g', str(gid)]
-            cmd += [groupname]
-            self._cmd_quiet(cmd)
+            self._groupadd(groupname, gid)
         return self._after(not group_existed, triggers)
+
+    def _useradd_cmd(self, username, home=True, uid=None, gid=None,
+                     groups=None, shell=None, comment=None):
+        cmd = ['useradd']
+        if home is not True:
+            if home is False:
+                cmd += ['-M']
+            elif type(home) is str:
+                cmd += ['-d', home]
+            else:
+                raise ValueError('errrrrr')
+        if uid is not None:
+            cmd += ['-u', str(uid)]
+        if gid is not None:
+            cmd += ['-g', str(gid)]
+        if shell is not None:
+            cmd += ['-s', str(shell)]
+        if comment is not None:
+            cmd += ['-c', str(comment)]
+        cmd += ['-U', username]
+        return cmd
+
+    def _useradd(self, username, home=True, uid=None, gid=None,
+                 groups=None, shell=None, comment=None):
+        self._cmd_quiet(self._useradd_cmd(username, home, uid, gid,
+                                          groups, shell, comment))
+
+    def _user_groups(self, username):
+        gs = self._cmd_quiet(['groups', username])
+        return sorted(gs.split(':')[-1].strip().split())
+
+    def _add_user_to_group(self, username, groupname):
+        self._cmd_quiet(['gpasswd', '-a', username, groupname])
+    def _remove_user_from_group(self, username, groupname):
+        self._cmd_quiet(['gpasswd', '-d', username, groupname])
 
     def user(self, username, password=None, encrypted_password=None,
              home=True, home_mode='755', uid=None, gid=None, groups=None, shell=None,
@@ -285,24 +331,8 @@ class Context(object):
         if self._before(triggered_by): return False
         user_existed = bool(self._user_name_to_uid(username))
         if not user_existed:
-            cmd = ['useradd']
-            if home is not True:
-                if home is False:
-                    cmd += ['-M']
-                elif type(home) is str:
-                    cmd += ['-d', home]
-                else:
-                    raise ValueError('errrrrr')
-            if uid is not None:
-                cmd += ['-u', str(uid)]
-            if gid is not None:
-                cmd += ['-g', str(gid)]
-            if shell is not None:
-                cmd += ['-s', str(shell)]
-            if comment is not None:
-                cmd += ['-c', str(comment)]
-            cmd += ['-U', username]
-            self._cmd_quiet(cmd)
+            self._useradd(username, home, uid, gid,
+                          groups, shell, comment)
         home_changed = False
         home_perm_changed = False
         if home is not False:
@@ -312,13 +342,13 @@ class Context(object):
 
         changing_groups = False
         if groups:
-            gs = self._cmd_quiet(['groups', username])
-            existing_groups = set(gs.split(':')[-1].strip().split()) - set([username])
-            changing_groups = set(existing_groups) != set(groups)
+            gs = self._user_groups(username)
+            existing_groups = set(self._user_groups(username)) - set([username])
+            changing_groups = existing_groups != set(groups)
             for group in sorted(list(set(groups) - set(existing_groups))):
-                self._cmd_quiet(['gpasswd', '-a', username, group])
+                self._add_user_to_group(username, group)
             for group in sorted(list(set(existing_groups) - set(groups))):
-                self._cmd_quiet(['gpasswd', '-d', username, group])
+                self._remove_user_from_group(username, group)
 
         # TODO: need to be able to check if the password was the same or not
         if random_password:
@@ -384,3 +414,67 @@ class Context(object):
         return self
 
 # TODO: rsync, git repo, apt sources, apt keys, ssh authorized_keys, cron
+
+class MockContext(Context):
+    def __init__(self, fs=None, users=None, groups=None):
+        self.fs = fs or fake_filesystem.FakeFilesystem()
+        self.users = users or [{'name':'root', 'id':0,
+                                'groups':['root'], 'home':'/root'}]
+        self.groups = groups or [{'name':'root', 'id':0}]
+        self._cmd = Mock()
+        self._cmd_quiet = Mock()
+        Context.__init__(self,
+                         _os=fake_filesystem.FakeOsModule(self.fs),
+                         _open=fake_filesystem.FakeFileOpen(self.fs))
+    def _cmd(self):
+        assert False
+    def _cmd_quiet(self):
+        assert False
+    def _cmd_in(self):
+        assert False
+    def _user_home(self, user):
+        return [x for x in self.users if x['name'] == user][0].get('home')
+    def _user_groups(self, user):
+        return [x for x in self.users if x['name'] == user][0].get('groups', [])
+    def _user_name_to_uid(self, user):
+        try: return [x for x in self.users if x['name'] == user][0]['id']
+        except IndexError: return None
+    def _group_name_to_gid(self, group):
+        try: return [x for x in self.groups if x['name'] == group][0]['id']
+        except IndexError: return None
+    def _next_id(self, arr):
+        i = 1000
+        for item in arr:
+            i = max(item['id'] + 1, i)
+        return i
+
+    def _groupadd(self, groupname, gid=None):
+        gid = gid or self._next_id(self.groups)
+        if len([x for x in self.groups if x['id'] == gid]) > 0:
+            raise Exception('gid already taken!')
+        self.groups += [{'name':groupname, 'id': gid}]
+
+    def _useradd(self, username, home=True, uid=None, gid=None,
+                 groups=None, shell=None, comment=None):
+        uid = uid or self._next_id(self.groups)
+        if len([x for x in self.users if x['id'] == uid]) > 0:
+            raise Exception('uid already taken!')
+        user = {'name':username, 'id':uid, 'comment':comment, 'shell':shell,
+                'home':'/home/'+username, 'groups':[username]}
+        if home is not True:
+            if home is False:
+                user['home'] = None
+            elif type(home) is str:
+                user['home'] = home
+            else:
+                raise ValueError('errrrrr')
+        self.users += [user]
+        self._groupadd(username, gid)
+
+    def _add_user_to_group(self, username, groupname):
+        user = [x for x in self.users if x['name'] == username][0]
+        user['groups'] = sorted(list(set(user['groups'] + [groupname])))
+
+    def _remove_user_from_group(self, username, groupname):
+        user = [x for x in self.users if x['name'] == username][0]
+        user['groups'] = sorted(list(set(user['groups']) - set([groupname])))
