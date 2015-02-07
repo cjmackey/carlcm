@@ -2,6 +2,7 @@
 import errno
 import filecmp
 import grp
+import hashlib
 import json
 import os as real_os
 import pwd
@@ -132,18 +133,17 @@ class Context(object):
         try:
             return pwd.getpwnam(user).pw_uid
         except KeyError:
-            if user == 'root':
-                return 0
             return None
     def _group_name_to_gid(self, group):
         try:
             return grp.getgrnam(group).gr_gid
         except KeyError:
-            if group == 'root':
-                return 0
             return None
     def _user_home(self, user):
-        return pwd.getpwnam(user).pw_dir
+        try:
+            return pwd.getpwnam(user).pw_dir
+        except KeyError:
+            return None
 
     def _apply_permissions(self, path, owner, group, mode):
         stat = self.os.stat(path)
@@ -191,14 +191,26 @@ class Context(object):
             f.truncate()
             f.write(data)
 
+    def _urlretrieve(self, url, path):
+        urllib.urlretrieve(url, path)
+
+    def _hash_file(self, path, hash_algo):
+        m = hashlib.new(hash_algo)
+        with self.open(path, 'rb') as f:
+            while True:
+                s = f.read(4096)
+                m.update(s)
+                if len(s) <= 0:
+                    break
+        return m.hexdigest()
+
     def download(self, path, url,
-                 sha1sum=None, sha256sum=None,
                  owner=None, group=None, mode=None,
-                 triggers=None, triggered_by=None):
+                 triggers=None, triggered_by=None, **kwargs):
         # NOTE: this downloads in-place currently, which is not great
         # for sanctity of the file.
 
-        # Also... right now, if you don't pass sha1sum, it will only
+        # Also... right now, if you don't pass a hash, it will only
         # download once, and never check again.  Is that desired?
         # Should it always download and compare the file?
         if self._before(triggered_by): return False
@@ -207,16 +219,15 @@ class Context(object):
             self._touch(path)
         perm_change = self._apply_permissions(path, owner, group, mode)
         if not file_new:
-            if sha1sum is not None:
-                file_new = self._cmd_quiet(['sha1sum', path]).strip().split()[0] != sha1sum
-            if sha256sum is not None:
-                file_new = self._cmd_quiet(['sha256sum', path]).strip().split()[0] != sha256sum
+            for a, k in [(a, a+s) for a in hashlib.algorithms for s in ['','sum']]:
+                if k in kwargs:
+                    file_new = file_new or self._hash_file(path, a) != kwargs[k]
+
         if file_new:
-            urllib.urlretrieve(url, path)
-            if sha1sum is not None:
-                assert self._cmd_quiet(['sha1sum', path]).strip().split()[0] == sha1sum
-            if sha256sum is not None:
-                assert self._cmd_quiet(['sha256sum', path]).strip().split()[0] == sha256sum
+            self._urlretrieve(url, path)
+            for a, k in [(a, a+s) for a in hashlib.algorithms for s in ['','sum']]:
+                if k in kwargs:
+                    assert self._hash_file(path, a) == kwargs[k]
         return self._after(perm_change or file_new, triggers)
 
     def file(self, dest_path, src_path=None, src_data=None,
@@ -421,6 +432,7 @@ class MockContext(Context):
         self.users = users or [{'name':'root', 'id':0,
                                 'groups':['root'], 'home':'/root'}]
         self.groups = groups or [{'name':'root', 'id':0}]
+        self.mock_urls = {}
         self._cmd = Mock()
         self._cmd_quiet = Mock()
         Context.__init__(self,
@@ -478,3 +490,6 @@ class MockContext(Context):
     def _remove_user_from_group(self, username, groupname):
         user = [x for x in self.users if x['name'] == username][0]
         user['groups'] = sorted(list(set(user['groups']) - set([groupname])))
+
+    def _urlretrieve(self, url, path):
+        self._write_file(path, self.mock_urls[url])

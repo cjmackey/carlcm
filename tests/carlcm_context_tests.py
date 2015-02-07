@@ -267,3 +267,38 @@ ii  acpid                                                 1:2.0.21-1ubuntu2     
         c.current_packages = Mock(return_value={'ack-grep':'2.12-1'})
         eq_(c.packages(['ack-grep', 'acpid']), True)
         c._cmd_quiet.assert_called_once_with(['apt-get', 'install', '-y', 'acpid'])
+
+    def test_download_new(self):
+        c.mock_urls['http://blah.com/blah.txt'] = 'asdf\n'
+        eq_(c.download('/blah.txt', 'http://blah.com/blah.txt'), True)
+        eq_(c._read_file('/blah.txt'), 'asdf\n')
+
+    def test_download_new_hash_match(self):
+        c.mock_urls['http://blah.com/blah.txt'] = 'asdf\n'
+        eq_(c.download('/blah.txt', 'http://blah.com/blah.txt',
+                       md5='2b00042f7481c7b056c4b410d28f33cf'), True)
+        eq_(c._read_file('/blah.txt'), 'asdf\n')
+
+    @raises(AssertionError)
+    def test_download_new_hash_mismatch(self):
+        c.mock_urls['http://blah.com/blah.txt'] = 'asdf\n'
+        c.download('/blah.txt', 'http://blah.com/blah.txt',
+                   md5='2b10042f7481c7b056c4b410d28f33cf')
+
+    def test_download_exists(self):
+        # NOTE: doesn't even download!
+        c._write_file('/blah.txt', 'asdf\n')
+        eq_(c.download('/blah.txt', 'http://blah.com/blah.txt'), False)
+        eq_(c._read_file('/blah.txt'), 'asdf\n')
+
+    def test_download_exists_hash_match(self):
+        c._write_file('/blah.txt', 'asdf\n')
+        eq_(c.download('/blah.txt', 'http://blah.com/blah.txt',
+                       md5='2b00042f7481c7b056c4b410d28f33cf'), False)
+
+    def test_download_exists_hash_mismatch(self):
+        c.mock_urls['http://blah.com/blah.txt'] = 'asdf\n'
+        c._write_file('/blah.txt', 'asdff\n')
+        eq_(c.download('/blah.txt', 'http://blah.com/blah.txt',
+                       md5='2b00042f7481c7b056c4b410d28f33cf'), True)
+        eq_(c._read_file('/blah.txt'), 'asdf\n')
