@@ -221,13 +221,24 @@ class TestCarlCMContext(object):
         eq_(c.user('jessie', groups=['agroup', 'bgroup']), True)
         eq_(c.users[1]['name'], 'jessie')
         eq_(c.users[1]['groups'], ['agroup', 'bgroup', 'jessie'])
-    """
-    TODO!
-    def test_user_exists_authorized_keys(self):
-        c._user_name_to_uid.return_value = 1002
-        eq_(c.group('jessie', authorized_keys=['blahblah']), False)
-        c._cmd_quiet.assert_has_calls([])
-    """
+
+    def test_user_authorized_keys(self):
+        eq_(c.user('jessie', authorized_keys='ssh-rsa blah== blah@blah'), True)
+        eq_(c._read_file('/home/jessie/.ssh/authorized_keys'),
+            'ssh-rsa blah== blah@blah')
+        eq_(S_IMODE(self.os.stat('/home/jessie/.ssh').st_mode), 0700)
+        eq_(S_IMODE(self.os.stat('/home/jessie/.ssh/authorized_keys').st_mode), 0600)
+        eq_(c.user('jessie', authorized_keys=['ssh-rsa blah== blah@blah']), False)
+        eq_(c.user('jessie', authorized_keys=None), False)
+        eq_(c.user('jessie', authorized_keys='x'), True)
+        eq_(c._read_file('/home/jessie/.ssh/authorized_keys'), 'x')
+        eq_(c.user('jessie', authorized_keys=['a','b','c']), True)
+        eq_(c._read_file('/home/jessie/.ssh/authorized_keys'), 'a\nb\nc')
+
+    @raises(AssertionError)
+    def test_user_authorized_keys_homeless(self):
+        c.user('jessie', authorized_keys='ssh-rsa blah== blah@blah', home=False)
+
     def test_user_groups_unchanged(self):
         c.users += [{'name':'jessie', 'id':1000,
                      'groups':['wheel', 'admins', 'gamers', 'jessie']}]

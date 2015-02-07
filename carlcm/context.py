@@ -332,7 +332,22 @@ class Context(object):
     def _remove_user_from_group(self, username, groupname):
         self._cmd_quiet(['gpasswd', '-d', username, groupname])
 
+    def authorized_keys(self, user, authorized_keys, triggers=None, triggered_by=None):
+        if self._before(triggered_by): return False
+        if type(authorized_keys) is list:
+            authorized_keys = '\n'.join(authorized_keys)
+        home = self._user_home(user)
+        if home is None:
+            raise AssertionError(user + ' has no home, but authorized_keys was specified!')
+        ssh_dir = self.os.path.join(home, '.ssh')
+        self.mkdir(ssh_dir, owner=user, group=user, mode=0700)
+        filename = self.os.path.join(ssh_dir, 'authorized_keys')
+        changed = self.file(filename, src_data = authorized_keys,
+                            owner=user, group=user, mode=0600)
+        return self._after(changed, triggers)
+
     def user(self, username, password=None, encrypted_password=None,
+             authorized_keys=None,
              home=True, home_mode='755', uid=None, gid=None, groups=None, shell=None,
              comment=None, random_password=False, triggers=None, triggered_by=None):
         '''
@@ -369,7 +384,10 @@ class Context(object):
         if encrypted_password is not None:
             self._cmd_in(['chpasswd', '-e'], username + ':' + encrypted_password + '\n')
 
-        return self._after(not user_existed or home_changed or home_perm_changed or changing_groups, triggers)
+        changed_auth_keys = False
+        if authorized_keys is not None:
+            changed_auth_keys = self.authorized_keys(username, authorized_keys)
+        return self._after(not user_existed or home_changed or home_perm_changed or changing_groups or changed_auth_keys, triggers)
 
     def line_in_file(self, path, line=None, regexp=None, state='present',
                      enforce_trailing_newline=True,
