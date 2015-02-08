@@ -10,12 +10,18 @@ super buggy and there are a lot of useful methods missing.  Because
 this is simply Python code, more complicated things are possible, and
 easy things are still easy (to misparaphrase Larry Wall).
 
+Installing:
+
+```
+pip install carlcm
+```
+
 Running simple idempotent operations is like this:
 
 ```python
 import carlcm
 c = carlcm.Context()
-c.user('exampleuser', random_password=True)
+c.user('exampleuser')
 c.file('/home/exampleuser/example.txt', src_data='Hello World!')
 ```
 
@@ -46,3 +52,5 @@ c.run_modules()
 
 That would set up the machine with docker, a user named carl, and a
 consul server.
+
+[On PyPI](https://pypi.python.org/pypi/carlcm)
