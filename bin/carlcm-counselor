@@ -1,0 +1,23 @@
+#!/usr/bin/env python
+
+import sys
+
+import boto
+import boto.ec2
+import boto.utils
+import carlcm
+
+ec2 = ec2.connect_ec2()
+
+instances = reduce(lambda a, b: a + b, [a.instances for a in ec2.get_all_reservations()], [])
+
+meta = boto.utils.get_instance_metadata()
+
+counselors = [i for i in instances if 'counselor' in [g.name for g in i.groups]]
+counselors = [i for i in instances if i.private_ip_address != meta['local-ipv4']]
+
+c = carlcm.Context()
+
+c.add_modules(carlcm.ConsulModule(mode='server', webui=True, bootstrap_expect=int(sys.argv[1]), servers=sorted([i.private_ip_address for i in counselors])))
+
+c.run_modules()

@@ -20,7 +20,7 @@ from .base import BaseModule
 
 class ConsulModule(BaseModule):
 
-    def __init__(self, encrypt, mode='client', servers=None, webui=False,
+    def __init__(self, encrypt=None, mode='client', servers=None, webui=False,
                  datacenter=None, bootstrap_expect=1):
         assert mode in ['client', 'server']
         self.mode = mode
@@ -34,21 +34,24 @@ class ConsulModule(BaseModule):
         return ['unzip']
 
     def main(self, context):
-        context.user('consul', home='/var/consul', home_mode='750', random_password=True)
+        context.user('consul', home='/var/consul', home_mode='750')
         self._acquire_consul(context)
         if self.webui:
             self._acquire_webui(context)
 
-        context.file('/etc/consul.d/server/config.json',
-                     owner='root', group='consul', mode='640',
-                     src_data=self._server_config(), triggers='consul')
-        context.file('/etc/consul.d/client/config.json',
-                     owner='root', group='consul', mode='640',
-                     src_data=self._client_config(), triggers='consul')
-        context.file('/etc/init/consul.conf',
-                     src_data=self._upstart_conf(), triggers='consul')
+        if self.mode == 'server':
+            config_json = self._server_config()
+        else:
+            config_json = self._client_config()
 
-        context.shell('service consul restart', triggered_by='consul')
+        context.file('/etc/consul.d/config.json',
+                     owner='root', group='consul', mode='640',
+                     src_data=config_json, triggers='consul')
+        context.file('/etc/init/consul.conf',
+                     src_data=self._upstart_conf(), triggers='consul-restart')
+
+        context.shell('service consul restart', triggered_by='consul-restart')
+        context.shell('service consul reload', triggered_by='consul')
 
     def _acquire_consul(self, context):
         is_new = context.download('/opt/consul/0.4.1/consul.zip',
@@ -67,9 +70,11 @@ class ConsulModule(BaseModule):
 
     def _server_config(self):
         d = {'server':True, 'datacenter':self.datacenter,
-             'data_dir':'/var/consul', 'encrypt': self.encrypt,
+             'data_dir':'/var/consul',
              'log_level':'INFO', 'enable_syslog':True,
              'bootstrap_expect': self.bootstrap_expect}
+        if self.encrypt is not None:
+            d['encrypt'] = encrypt
         if self.webui:
             d["ui_dir"] = "/opt/consul/0.4.1/web/dist"
         if self.servers:
@@ -90,5 +95,5 @@ class ConsulModule(BaseModule):
         s += 'stop on runlevel [!12345]\n\n'
         s += 'respawn\n\n'
         s += 'setuid consul\nsetgid consul\n\n'
-        s += 'exec /opt/consul/0.4.1/consul agent -config-dir /etc/consul.d/%s\n' % self.mode
+        s += 'exec /opt/consul/0.4.1/consul agent -config-dir /etc/consul.d\n'
         return s

@@ -3,19 +3,18 @@ try:
 except ImportError:
     from distutils.core import setup, find_packages
 
-version = '0.1.3'
+version = '0.1.4'
 
 config = {
     'description': 'CarlCM',
     'author': 'Carl J Mackey',
     'url': 'https://github.com/cjmackey/carlcm',
-#    'download_url': 'https://github.com/cjmackey/carlcm/tarball/' + version,
     'author_email': 'carljmackey@gmail.com',
     'version': version,
     'install_requires': ['nose', 'mock', 'coverage',
                          'jinja2', 'pyfakefs', 'python-consul'],
     'packages': find_packages(),
-    'scripts': [],
+    'scripts': ['bin/carlcm-counselor'],
     'name': 'carlcm',
     'classifiers': [
         'Development Status :: 1 - Planning',
