@@ -15,11 +15,14 @@ class Counselor(object):
         if in_ec2:
             import boto.utils
             self.meta = boto.utils.get_instance_metadata()
-            self.region = region or meta['hostname'].split('.')[1]
+        if region is None:
+            if in_ec2:
+                self.region = self.meta['hostname'].split('.')[1]
+            else:
+                self.region = 'us-west-2'
         else:
-            self.region = region or 'us-west-2'
+            self.region = region
 
-        self.region = region
         self.policies = {
             'counselor': {
                 "Statement":[{
@@ -30,12 +33,15 @@ class Counselor(object):
         }
         self.ec2 = ec2 or boto.ec2.connect_to_region(self.region)
         self.iam = iam or boto.connect_iam()
+        assert self.ec2
+        assert self.iam
 
     def role_and_profile(self, name):
         self.iam_role(name)
         self.instance_profile(name, name)
 
     def iam_role(self, name, policy_name='managedpolicy'):
+        import boto
         policy = json.dumps(self.policies[name], sort_keys=True, indent=4, separators=(',', ': '))
         try: role = self.iam.get_role(name)
         except boto.exception.BotoServerError: role = None
@@ -46,6 +52,7 @@ class Counselor(object):
         self.iam.put_role_policy(name, policy_name, policy)
 
     def instance_profile(self, name, role_name=None):
+        import boto
         try: profile = self.iam.get_instance_profile(name)
         except boto.exception.BotoServerError: profile = None
         if profile is None:
@@ -72,6 +79,7 @@ class Counselor(object):
             should_add = True
 
     def security_group(self, name, description):
+        import boto
         try: group = self.ec2.get_all_security_groups(groupnames=[name])[0]
         except boto.exception.EC2ResponseError: group = None
         if group is None:
@@ -96,8 +104,9 @@ sudo apt-get update
 sudo apt-get install -y python-dev python-setuptools
 sudo easy_install pip
 sudo pip install boto
+sudo pip install python-consul
 sudo pip install carlcm
-sudo /usr/local/bin/carlcm-counselor 3'''
+sudo /usr/local/bin/carlcm-counselor %i''' % (count)
         if is_bootstrap:
             user_data += ' bootstrap'
         user_data += '\n'
