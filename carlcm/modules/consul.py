@@ -68,23 +68,33 @@ class ConsulModule(BaseModule):
         if ui_is_new:
             context.cmd(['unzip', '/opt/consul/0.4.1/web/web.zip', '-d', '/opt/consul/0.4.1/web/'], quiet=True)
 
-    def _server_config(self):
-        d = {'server':True, 'datacenter':self.datacenter,
+    def _common_config(self):
+        d = {'datacenter':self.datacenter,
              'data_dir':'/var/consul',
-             'log_level':'INFO', 'enable_syslog':True,
-             'bootstrap_expect': self.bootstrap_expect}
+             'log_level':'INFO', 'enable_syslog':True}
         if self.encrypt is not None:
             d['encrypt'] = encrypt
         if self.webui:
             d["ui_dir"] = "/opt/consul/0.4.1/web/dist"
+            d["client_addr"] = "127.0.0.1"
+            d["addresses"] = {
+                "dns": "127.0.0.1",
+                "http": "0.0.0.0",
+                "rpc": "127.0.0.1"
+            }
         if self.servers:
             # TODO: check if we need to eliminate ourselves from the list?
             d["start_join"] = self.servers
         return d
 
+    def _server_config(self):
+        d = self._common_config()
+        d['bootstrap_expect'] = self.bootstrap_expect
+        d['server'] = True
+        return d
+
     def _client_config(self):
         d = self._server_config()
-        del d['bootstrap_expect']
         d['server'] = False
         return d
 

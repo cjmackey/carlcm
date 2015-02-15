@@ -3,7 +3,7 @@ try:
 except ImportError:
     from distutils.core import setup, find_packages
 
-version = '0.1.4'
+version = '0.1.7'
 
 config = {
     'description': 'CarlCM',
