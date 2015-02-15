@@ -1,42 +1,9 @@
 #!/usr/bin/env python
 
-import subprocess
 import sys
-import time
 
-import boto
-import boto.ec2
-import boto.utils
 import carlcm
 
-count = 1
-if len(sys.argv) > 1:
-    count = int(sys.argv[1])
-
-is_bootstrap = len(sys.argv) > 2 and sys.argv[2] == 'bootstrap'
-
-meta = boto.utils.get_instance_metadata()
-region = meta['hostname'].split('.')[1]
-
-ec2 = boto.ec2.connect_to_region(region)
-
-instances = reduce(lambda a, b: a + b, [a.instances for a in ec2.get_all_reservations()], [])
-
-counselors = [i for i in instances if 'counselor' in [g.name for g in i.groups]]
-counselors = [i for i in counselors if i.state in ['running', 'pending']]
-counselors = [i for i in counselors if i.private_ip_address != meta['local-ipv4']]
-counselor_ips = sorted([i.private_ip_address for i in counselors if i.private_ip_address])
-
-if is_bootstrap and all([meta['local-ipv4'] < ip for ip in counselor_ips]):
-    counselor_ips = None
-
-c = carlcm.Context()
-
-c.add_modules(carlcm.ConsulModule(mode='server', webui=True, bootstrap_expect=count, servers=counselor_ips))
-
-c.run_modules()
-
-if is_bootstrap:
-    for i in xrange(100):
-        time.sleep(5)
-        subprocess.check_output(['service', 'consul', 'start'])
+if __name__ == '__main__':
+    counselor = carlcm.Counselor(in_ec2=True)
+    counselor.ensure_local(*sys.argv[1:])

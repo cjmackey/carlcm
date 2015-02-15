@@ -1,0 +1,7 @@
+#!/usr/bin/env python
+
+import carlcm
+
+if __name__ == '__main__':
+    counselor = carlcm.Counselor()
+    counselor.ensure_council()

@@ -12,9 +12,6 @@ from stat import S_IMODE, S_ISDIR
 import subprocess
 import urllib
 
-import fake_filesystem
-from mock import Mock
-
 class Context(object):
     '''
     Most methods return True if something was modified, and False otherwise
@@ -446,6 +443,9 @@ class Context(object):
 
 class MockContext(Context):
     def __init__(self, fs=None, users=None, groups=None):
+        import fake_filesystem
+        from mock import Mock
+
         self.fs = fs or fake_filesystem.FakeFilesystem()
         self.users = users or [{'name':'root', 'id':0,
                                 'groups':['root'], 'home':'/root'}]

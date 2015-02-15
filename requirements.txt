@@ -1,0 +1,8 @@
+nose
+mock
+coverage
+jinja2
+pyfakefs
+python-consul
+boto
+moto
