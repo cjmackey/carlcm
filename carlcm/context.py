@@ -10,18 +10,26 @@ import re
 import shutil
 from stat import S_IMODE, S_ISDIR
 import subprocess
+import sys
+import types
 import urllib
 
 class Context(object):
     '''
     Most methods return True if something was modified, and False otherwise
     '''
-    def __init__(self, _os=None, _open=None):
+
+    is_mock = False
+
+    def __init__(self, _os=None, _open=None, action_modules=None):
         self.os = _os or real_os
         self.open = _open or open
         self.triggers = set()
         self.package_cache = None
         self.modules = []
+        self.actions = {}
+        self.action_modules = set()
+        self.add_action_module('carlcm.actions.core')
 
     def _before(self, triggered_by):
         '''
@@ -48,6 +56,38 @@ class Context(object):
         if is_new:
             self.triggers = self.triggers.union(set(triggers))
         return is_new
+
+    def add_action_module(self, action_module):
+        if self.is_mock:
+            action_module += '_mock'
+        if action_module in self.action_modules:
+            return
+        print action_module
+        __import__(action_module)
+        module = sys.modules[action_module]
+        for funcname in dir(module):
+            func = module.__getattribute__(funcname)
+            print action_module, funcname
+            if funcname[:1] != '_' and type(func) == types.FunctionType:
+                print 'adding'
+                self.actions[funcname] = func
+
+    def __getattr__(self, name):
+        print name
+        if name in self.actions:
+            print 'matched'
+            action = self.actions[name]
+            def _missing(*args, **kwargs):
+                triggers = kwargs.get('triggers')
+                triggered_by = kwargs.get('triggered_by')
+                if 'triggers' in kwargs: del kwargs['triggers']
+                if 'triggered_by' in kwargs: del kwargs['triggered_by']
+                if self._before(triggered_by):
+                    return False
+                changed = action(self, *args, **kwargs)
+                return self._after(changed, triggers)
+            return _missing
+        raise AttributeError('No attribute %s' % name)
 
     def shell(self, cmd, **kwargs):
         return self.cmd(cmd, shell=True, **kwargs)
@@ -167,13 +207,13 @@ class Context(object):
                 matched = False
         return not matched
 
-    def mkdir(self, path, owner=None, group=None, mode=None,
-              triggers=None, triggered_by=None):
-        if self._before(triggered_by): return False
-        path = self.os.path.realpath(path)
-        is_new = self._mkdir(path)
-        perm_change = self._apply_permissions(path, owner, group, mode)
-        return self._after(is_new or perm_change, triggers)
+    #def mkdir(self, path, owner=None, group=None, mode=None,
+    #          triggers=None, triggered_by=None):
+    #    if self._before(triggered_by): return False
+    #    path = self.os.path.realpath(path)
+    #    is_new = self._mkdir(path)
+    #    perm_change = self._apply_permissions(path, owner, group, mode)
+    #    return self._after(is_new or perm_change, triggers)
 
     def _touch(self, path):
         self._mkdir(self.os.path.dirname(path))
@@ -442,6 +482,9 @@ class Context(object):
 # TODO: rsync, git repo, apt sources, apt keys, ssh authorized_keys, cron
 
 class MockContext(Context):
+
+    is_mock = True
+
     def __init__(self, fs=None, users=None, groups=None):
         import fake_filesystem
         from mock import Mock
