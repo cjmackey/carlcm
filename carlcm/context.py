@@ -21,14 +21,14 @@ class Context(object):
 
     is_mock = False
 
-    def __init__(self, _os=None, _open=None, action_modules=None):
+    def __init__(self, _os=None, _open=None):
         self.os = _os or real_os
         self.open = _open or open
         self.triggers = set()
         self.package_cache = None
         self.modules = []
         self.actions = {}
-        self.action_modules = set()
+        self.action_modules = {}
         self.add_action_module('carlcm.actions.core')
 
     def _before(self, triggered_by):
@@ -57,26 +57,30 @@ class Context(object):
             self.triggers = self.triggers.union(set(triggers))
         return is_new
 
-    def add_action_module(self, action_module):
+    def add_action_module(self, am_name, *args, **kwargs):
+        import_name = am_name
         if self.is_mock:
-            action_module += '_mock'
-        if action_module in self.action_modules:
+            import_name += '_mock'
+        if am_name in self.action_modules:
             return
-        print action_module
-        __import__(action_module)
-        module = sys.modules[action_module]
-        for funcname in dir(module):
-            func = module.__getattribute__(funcname)
-            print action_module, funcname
-            if funcname[:1] != '_' and type(func) == types.FunctionType:
-                print 'adding'
-                self.actions[funcname] = func
+        from carlcm.actions.action_module import ActionModule
+        __import__(import_name)
+        py_module = sys.modules[import_name]
+        classname = ''.join([a.capitalize() for a in py_module.__name__.split('.')[-1].split('_')])
+        am = py_module.__getattribute__(classname)(*args, **kwargs)
+        print am
+        print dir(am)
+        for k in dir(am):
+            v = am.__getattribute__(k)
+            print k, v, type(v)
+            if k[:1] != '_' and type(v) == types.MethodType:
+                self.actions[k] = [am, v]
 
     def __getattr__(self, name):
         print name
         if name in self.actions:
             print 'matched'
-            action = self.actions[name]
+            am, action = self.actions[name]
             def _missing(*args, **kwargs):
                 triggers = kwargs.get('triggers')
                 triggered_by = kwargs.get('triggered_by')
@@ -206,14 +210,6 @@ class Context(object):
             if owner >= 0 and stat.st_uid != owner or group >= 0 and stat.st_gid != group:
                 matched = False
         return not matched
-
-    #def mkdir(self, path, owner=None, group=None, mode=None,
-    #          triggers=None, triggered_by=None):
-    #    if self._before(triggered_by): return False
-    #    path = self.os.path.realpath(path)
-    #    is_new = self._mkdir(path)
-    #    perm_change = self._apply_permissions(path, owner, group, mode)
-    #    return self._after(is_new or perm_change, triggers)
 
     def _touch(self, path):
         self._mkdir(self.os.path.dirname(path))
