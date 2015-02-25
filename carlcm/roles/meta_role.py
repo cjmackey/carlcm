@@ -1,9 +1,14 @@
 
+from ..internal_utils import *
+
 class MetaRole(object):
     name = 'metarole'
 
     min_count = 1
     max_count = 1
+
+    def import_name(self):
+        return 'carlcm.roles.' + camel_to_snake(self.__class__.__name__)
 
     def __init__(self, environment_name):
         self.environment_name = environment_name

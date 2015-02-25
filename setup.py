@@ -3,7 +3,7 @@ try:
 except ImportError:
     from distutils.core import setup, find_packages
 
-version = '0.1.10'
+version = '0.1.11'
 
 config = {
     'description': 'CarlCM',
@@ -15,9 +15,9 @@ config = {
     'packages': find_packages(),
     'scripts': [
         'bin/carlcm-bootstrap-council',
+        'bin/carlcm-cluster-role',
         'bin/carlcm-counselor',
-        'bin/run-role.py',
-        'bin/cluster-role.py',
+        'bin/carlcm-run-role',
     ],
     'name': 'carlcm',
     'classifiers': [

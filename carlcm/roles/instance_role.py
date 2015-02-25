@@ -20,10 +20,11 @@ class InstanceRole(MetaRole):
     def user_data(self):
         return '''#!/bin/bash
 sudo apt-get update
-sudo apt-get install -y python-dev python-setuptools
+sudo apt-get install -y python-setuptools
 sudo easy_install pip
 sudo pip install carlcm
-'''
+sudo carlcm-run-role '%s' '%s'
+''' % (self.import_name(), self.environment_name)
 
     def instances(self, context):
         insts = context.aws._get_instances()

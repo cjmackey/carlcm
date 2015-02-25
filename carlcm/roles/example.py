@@ -25,5 +25,5 @@ Hello World!
 </body>
 </html>
 ''')
-        context.cmd('service nginx reload', triggered_by='nginx')
+        context.cmd(['service', 'nginx', 'reload'], triggered_by='nginx')
         return
