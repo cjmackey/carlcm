@@ -57,3 +57,6 @@ target/
 tests/sandbox
 coverage
 .vagrant
+
+notes.txt
+
