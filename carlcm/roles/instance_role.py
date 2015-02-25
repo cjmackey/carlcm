@@ -33,7 +33,7 @@ sudo pip install carlcm
     def next_name(self, context, instances=None):
         instances = instances or self.instances(context)
         names = set([i.tags.get('Name') for i in instances])
-        for i in xrange(1000):
+        for i in xrange(1, 1000):
             if self.name(i) in names:
                 continue
             return self.name(i)

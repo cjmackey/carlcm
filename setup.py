@@ -16,6 +16,8 @@ config = {
     'scripts': [
         'bin/carlcm-bootstrap-council',
         'bin/carlcm-counselor',
+        'bin/run-role.py',
+        'bin/cluster-role.py',
     ],
     'name': 'carlcm',
     'classifiers': [
