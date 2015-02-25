@@ -100,8 +100,8 @@ class Aws(ActionModule):
 
     def launch_instance(self, name, security_groups, iam_role=None, **kwargs):
         insts = self._get_instances()
-        if len([i for i in insts if i.tags.get('Name') == name]) > 0:
-            raise Exception('An instance with the name "" already exists!' % (name))
+        if len([i for i in insts if i.tags.get('Name') == name and i.state != 'terminated']) > 0:
+            raise Exception('An instance with the name "%s" already exists!' % (name))
         if type(security_groups) == str:
             security_groups = [security_groups]
         security_group_ids = []
