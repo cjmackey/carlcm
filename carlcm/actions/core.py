@@ -1,4 +1,6 @@
 
+import jinja2
+
 from .action_module import ActionModule
 
 class Core(ActionModule):

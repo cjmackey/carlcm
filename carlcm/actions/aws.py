@@ -1,4 +1,7 @@
 
+import json
+import time
+
 import boto
 import boto.ec2
 import boto.iam
@@ -38,11 +41,12 @@ class Aws(ActionModule):
 
     def iam_role(self, name, policy_name='managedpolicy', policy_data={}):
         if type(policy_data) != str:
-            policy_data = json.dumps(self.policies[name], sort_keys=True, indent=4, separators=(',', ': '))
+            policy_data = json.dumps(policy_data, sort_keys=True, indent=4, separators=(',', ': '))
         try: role = self.iam.get_role(name)
         except boto.exception.BotoServerError: role = None
         if role is None:
             self.iam.create_role(name)
+            time.sleep(1)
             role = self.iam.get_role(name)
         # ...someday, maybe support for multiple policies via iam.list_role_policies()
         self.iam.put_role_policy(name, policy_name, policy_data)
@@ -56,6 +60,7 @@ class Aws(ActionModule):
         except boto.exception.BotoServerError: profile = None
         if profile is None:
             self.iam.create_instance_profile(name)
+            time.sleep(1)
             profile = self.iam.get_instance_profile(name)
         roles = profile['get_instance_profile_response']['get_instance_profile_result']['instance_profile']['roles']
         should_add = False

@@ -1,10 +1,10 @@
 
 from .instance_role import InstanceRole
 
-class ExampleRole(InstanceRole):
+class Example(InstanceRole):
 
     def main(self, context):
-        super(ExampleRole, self).main(context)
+        super(Example, self).main(context)
         context.package('nginx')
         context.mkdir('/usr/share/nginx/html')
         context.file('/etc/nginx/sites-available/default', src_data='''
