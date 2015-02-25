@@ -66,21 +66,20 @@ class Context(object):
         from carlcm.actions.action_module import ActionModule
         __import__(import_name)
         py_module = sys.modules[import_name]
-        classname = ''.join([a.capitalize() for a in py_module.__name__.split('.')[-1].split('_')])
-        am = py_module.__getattribute__(classname)(*args, **kwargs)
-        print am
-        print dir(am)
+        name = py_module.__name__.split('.')[-1]
+        classname = ''.join([a.capitalize() for a in name.split('_')])
+        am = py_module.__getattribute__(classname)(context=self, *args, **kwargs)
+        self.action_modules[name] = am
         for k in dir(am):
             v = am.__getattribute__(k)
-            print k, v, type(v)
             if k[:1] != '_' and type(v) == types.MethodType:
-                self.actions[k] = [am, v]
+                self.actions[k] = v
 
     def __getattr__(self, name):
-        print name
+        if name in self.action_modules:
+            return self.action_modules[name]
         if name in self.actions:
-            print 'matched'
-            am, action = self.actions[name]
+            action = self.actions[name]
             def _missing(*args, **kwargs):
                 triggers = kwargs.get('triggers')
                 triggered_by = kwargs.get('triggered_by')
@@ -88,7 +87,7 @@ class Context(object):
                 if 'triggered_by' in kwargs: del kwargs['triggered_by']
                 if self._before(triggered_by):
                     return False
-                changed = action(self, *args, **kwargs)
+                changed = action(*args, **kwargs)
                 return self._after(changed, triggers)
             return _missing
         raise AttributeError('No attribute %s' % name)

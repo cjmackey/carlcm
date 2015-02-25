@@ -1,3 +1,4 @@
 
 class ActionModule(object):
-    pass
+    def __init__(self, context=None):
+        self.context = context
