@@ -13,6 +13,9 @@ import subprocess
 import sys
 import types
 import urllib
+import yaml
+
+# TODO: some sort of locking/mutexing to wait if some other context is running
 
 class Context(object):
     '''
@@ -25,7 +28,9 @@ class Context(object):
         self.os = _os or real_os
         self.open = _open or open
         self.triggers = set()
-        self.package_cache = None
+        self.apt_package_cache = None
+        self.pip_package_cache = None
+        self.aws_info_cache = None
         self.modules = []
         self.actions = {}
         self.action_modules = {}
@@ -96,6 +101,8 @@ class Context(object):
         return self.cmd(cmd, shell=True, **kwargs)
 
     def _cmd_quiet(self, *args, **kwargs):
+        kwargs = kwargs.copy()
+        kwargs['stderr'] = kwargs.get('stderr', subprocess.STDOUT)
         return subprocess.check_output(*args, **kwargs)
 
     def _cmd(self, *args, **kwargs):
@@ -112,28 +119,82 @@ class Context(object):
         stdout, stderr = proc.communicate()
         return stdout
 
-    def current_packages(self):
-        if self.package_cache is not None:
-            return self.package_cache
+    def pip(self, packages, triggers=None, triggered_by=None):
+        # TODO: something smarter :/
+        #
+        # basically, we want to do something like is happening with
+        # apt, but with pip syntax. unfortunately right now it messily
+        # depends on apt methods, and calls pip too many times.
+        if self._before(triggered_by): return False
+        if type(packages) == str: packages = packages.split()
+        changed = False
+        for p in packages:
+            arg = self._pkg_str(p, cache=self.current_pip_packages())
+            if arg is None: continue
+            if '=' in arg:
+                self._cmd_quiet(['pip', 'install', arg.replace('=','==')])
+            else:
+                self._cmd_quiet(['pip', 'install', arg, '--upgrade'])
+            changed = True
+            self.pip_package_cache = None
+        return self._after(changed, triggers)
+
+    def current_pip_packages(self):
+        if self.pip_package_cache is not None:
+            return self.pip_package_cache
+        self.pip_package_cache = dict([x.strip().split('==') for x in self._cmd_quiet(['pip', 'freeze']).splitlines() if len(x.split('==')) == 2])
+        return self.pip_package_cache
+
+    def current_apt_packages(self):
+        if self.apt_package_cache is not None:
+            return self.apt_package_cache
         s = self._cmd_quiet(['dpkg', '-l'])
         d = {}
         for line in [l.strip().split() for l in s.split("\n") if l.strip()[:2] == 'ii']:
             if len(line) >= 3:
                 d[line[1]] = line[2]
-        self.package_cache = d
+        self.apt_package_cache = d
         return d
 
-    def package_manager_update(self, triggers=None, triggered_by=None):
+    def apt_update(self, triggers=None, triggered_by=None):
         if self._before(triggered_by): return False
         self._cmd_quiet(['apt-get', 'update'])
         return self._after(True, triggers)
 
-    def package(self, package, **kwargs):
-        return self.packages([package], **kwargs)
+    def _pkg_str(self, s, cache=None):
+        if cache is None:
+            cache = self.current_apt_packages()
+        name, version, comparator = None, None, None
+        if '>=' in s:
+            name, version, comparator = s.split('>=') + ['>=']
+        elif '>' in s:
+            raise Exception('only >= is supported for now, not >')
+        elif '==' in s:
+            name, version, comparator = s.split('==') + ['=']
+        elif '=' in s:
+            name, version, comparator = s.split('=') + ['=']
+        else:
+            name, version, comparator = s, 'any', '='
+        current = cache.get(name)
+        need_install = not current
+        if version == 'any': pass
+        elif version == 'latest':
+            need_install = True
+        elif current:
+            if comparator == '>=' and not current >= version:
+                need_install = True
+            elif comparator == '=' and not current == version:
+                need_install = True
+        if need_install and (version == 'any' or version == 'latest' or comparator == '>='):
+            return name
+        if need_install and comparator == '=':
+            return name + '=' + version
+        return None
 
-    def packages(self, packages, triggers=None, triggered_by=None):
+    def apt(self, packages, triggers=None, triggered_by=None):
+        if type(packages) == str: packages = packages.split()
         if self._before(triggered_by): return False
-        new_packages = [p for p in packages if p not in self.current_packages()]
+        new_packages = filter(None, map(self._pkg_str, packages))
         if len(new_packages) > 0:
             old_env = self.os.getenv('DEBIAN_FRONTEND', None)
             self.os.environ['DEBIAN_FRONTEND'] = 'noninteractive'
@@ -143,6 +204,7 @@ class Context(object):
             else:
                 del self.os.environ['DEBIAN_FRONTEND']
             self.package_cache = None
+            # TODO: if anything had a '>=', raise an exception if it installed a version lower than that.
         return self._after(len(new_packages) > 0, triggers)
 
     def cmd(self, cmd, quiet=False, triggers=None, triggered_by=None, **kwargs):
@@ -223,6 +285,26 @@ class Context(object):
             f.truncate()
             f.write(data)
 
+    def _http_get(self, url):
+        import requests
+        res = requests.get(url)
+        if res.status_code != 200:
+            raise Exception('failed http get of '+url+' status code = ' + str(res.status_code))
+        return res.text
+
+    def aws_info(self):
+        if self.aws_info_cache is not None:
+            return self.aws_info_cache
+        prefix = 'http://169.254.169.254/latest/meta-data/'
+        az = self._http_get(prefix + 'placement/availability-zone').strip()
+        region = az[:-1]
+        inst_id = self._http_get(prefix + 'instance-id').strip()
+        import boto
+        import boto.ec2
+        ec2 = boto.ec2.connect_to_region(region)
+        self.aws_info_cache = ec2.get_only_instances(inst_id)[0]
+        return self.aws_info_cache
+
     def _urlretrieve(self, url, path):
         urllib.urlretrieve(url, path)
 
@@ -262,15 +344,44 @@ class Context(object):
                     assert self._hash_file(path, a) == kwargs[k]
         return self._after(perm_change or file_new, triggers)
 
-    def file(self, dest_path, src_path=None, src_data=None,
+    def dir(self, path, owner=None, group=None, mode=None,
+            triggers=None, triggered_by=None):
+        if self._before(triggered_by): return False
+        is_new = self._mkdir(path)
+        perm_change = self._apply_permissions(path, owner, group, mode)
+        return self._after(perm_change or is_new, triggers)
+    
+    def file(self, dest_path, data_file=None, data=None,
+             json_data=None, yaml_data=None,
+             template=None, template_file=None, template_engine='jinja2',
              owner=None, group=None, mode=None,
-             triggers=None, triggered_by=None):
+             triggers=None, triggered_by=None,
+             vars=None, **kwargs):
         # NOTE: this writes the file in-place currently, which is not
         # great for the stability of reads to that file.
-        assert bool(src_path is not None) != bool(src_data is not None)
         if self._before(triggered_by): return False
-        if dest_path[-1:] == '/' and src_path:
-            _, tail = self.os.path.split(src_path)
+        if json_data:
+            data = json.dumps(json_data, sort_keys=True,
+                              indent=4, separators=(',', ': ')).strip() + '\n'
+        if yaml_data:
+            data = yaml.dump(yaml_data)
+        if template_file is not None:
+            template = self._read_file(template_file)
+        if template:
+            merged_vars = kwargs.copy()
+            merged_vars.update(vars or {})
+            if template_engine == 'jinja2':
+                import jinja2
+                data = jinja2.Template(template).render(merged_vars)
+            else:
+                raise ValueError('no matching template engine!')
+        assert bool(data_file is not None) != bool(data is not None)
+        if data_file is not None:
+            data = self._read_file(data_file)
+        if hasattr(data, 'read'): # in case we were passed a file handle
+            data = data.read()
+        if dest_path[-1:] == '/' and data_file:
+            _, tail = self.os.path.split(data_file)
             dest_path += tail
         dest_path = self.os.path.realpath(dest_path)
         file_existed = self.os.path.isfile(dest_path)
@@ -278,39 +389,10 @@ class Context(object):
             self._touch(dest_path)
         perm_change = self._apply_permissions(dest_path, owner, group, mode)
         old_contents = self._read_file(dest_path)
-        if type(src_data) is dict:
-            src_data = json.dumps(src_data, sort_keys=True,
-                                  indent=4, separators=(',', ': ')) + '\n'
-        if src_path is not None:
-            src_data = self._read_file(src_path)
-        contents_match = src_data == old_contents
+        contents_match = data == old_contents
         if not contents_match:
-            self._write_file(dest_path, src_data)
+            self._write_file(dest_path, data)
         return self._after(perm_change or not (file_existed and contents_match), triggers)
-
-    def template(self, dest_path, src_path=None, src_data=None,
-                 template_parameters=None, engine='jinja2',
-                 triggers=None, triggered_by=None, **kwargs):
-        if engine == 'jinja2':
-            return self.jinja2(dest_path, src_path, src_data, template_parameters,
-                               triggers, triggered_by, **kwargs)
-        raise ValueError('no matching template engine!')
-
-    def jinja2(self, dest_path, src_path=None, src_data=None,
-               owner=None, group=None, mode=None,
-               template_parameters=None, triggers=None, triggered_by=None, **kwargs):
-        import jinja2
-        if self._before(triggered_by): return False
-        template_parameters = template_parameters or {}
-        for k, v in kwargs.items():
-            template_parameters[k] = template_parameters.get(k, v)
-        if src_path is not None and src_data is None:
-            src_data = self._read_file(src_path)
-        # todo: also pass perms
-        return self.file(dest_path = dest_path,
-                         owner=owner, group=group, mode=mode,
-                         src_data = jinja2.Template(src_data).render(template_parameters),
-                         triggers = triggers)
 
     def _groupadd_cmd(self, groupname, gid=None):
         cmd = ['groupadd']
@@ -374,7 +456,7 @@ class Context(object):
         ssh_dir = self.os.path.join(home, '.ssh')
         self.mkdir(ssh_dir, owner=user, group=user, mode=0700)
         filename = self.os.path.join(ssh_dir, 'authorized_keys')
-        changed = self.file(filename, src_data = authorized_keys,
+        changed = self.file(filename, data=authorized_keys,
                             owner=user, group=user, mode=0600)
         return self._after(changed, triggers)
 
@@ -458,7 +540,7 @@ class Context(object):
         data2 = '\n'.join(lines)
         if enforce_trailing_newline and (len(data2) == 0 or data2[-1] != '\n'):
             data2 += '\n'
-        return self.file(path, src_data=data2)
+        return self.file(path, data=data2)
 
     def add_modules(self, *args):
         self.modules += args

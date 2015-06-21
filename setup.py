@@ -11,7 +11,7 @@ config = {
     'url': 'https://github.com/cjmackey/carlcm',
     'author_email': 'carljmackey@gmail.com',
     'version': version,
-    'install_requires': ['jinja2'],
+    'install_requires': ['jinja2', 'pyyaml'],
     'packages': find_packages(),
     'scripts': [
         'bin/carlcm-bootstrap-council',

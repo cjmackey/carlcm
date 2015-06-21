@@ -64,62 +64,74 @@ class TestCarlCMContext(object):
         eq_(S_IMODE(self.os.stat('existingdir').st_mode), 0715)
 
     def test_file_already_exists_and_equal_src_data(self):
-        eq_(c.file('existingfile', src_data='asdf'), False)
+        eq_(c.file('existingfile', data='asdf'), False)
 
     def test_file_already_exists_and_equal_src_path(self):
         with self.open('src', 'wb') as f: f.write('asdf')
-        eq_(c.file('existingfile', src_path='src'), False)
+        eq_(c.file('existingfile', data_file='src'), False)
+
+    def test_file_already_exists_and_equal_src_data_file_handle(self):
+        with self.open('src', 'wb') as f: f.write('asdf')
+        eq_(c.file('existingfile', data=self.open('src')), False)
 
     def test_file_already_exists_and_unequal_src_data(self):
-        eq_(c.file('existingfile', src_data='ff'), True)
+        eq_(c.file('existingfile', data='ff'), True)
         eq_(self.open('existingfile', 'rb').read(), 'ff')
 
     def test_file_already_exists_and_unequal_src_path(self):
         with self.open('src', 'wb') as f: f.write('ff')
-        eq_(c.file('existingfile', src_path='src'), True)
+        eq_(c.file('existingfile', data_file='src'), True)
         eq_(self.open('existingfile', 'rb').read(), 'ff')
 
     def test_file_new_src_data(self):
-        eq_(c.file('/file.txt', src_data='asdf'), True)
+        eq_(c.file('/file.txt', data='asdf'), True)
         eq_(self.open('/file.txt', 'rb').read(), 'asdf')
+
+    def test_file_new_json(self):
+        eq_(c.file('/file.json', json_data={'a':'b'}), True)
+        eq_(self.open('/file.json', 'rb').read(), '{\n    "a": "b"\n}\n')
+
+    def test_file_new_yaml(self):
+        eq_(c.file('/file.yaml', yaml_data={'a':'b'}), True)
+        eq_(self.open('/file.yaml', 'rb').read(), '{a: b}\n')
 
     def test_file_new_src_path_subdir(self):
         with self.open('file.txt', 'wb') as f: f.write('asdf')
-        eq_(c.file('dir/subdir/', src_path='file.txt'), True)
+        eq_(c.file('dir/subdir/', data_file='file.txt'), True)
         eq_(self.open('dir/subdir/file.txt', 'rb').read(), 'asdf')
 
     def test_line_in_file_exists(self):
-        c.file('f', src_data='asdf\n')
+        c.file('f', data='asdf\n')
         eq_(c.line_in_file('f', 'blah'), True)
         eq_(self.open('f', 'rb').read(), 'asdf\nblah\n')
 
     def test_line_in_file_exists_and_matches(self):
-        c.file('f', src_data='asdf\n')
+        c.file('f', data='asdf\n')
         eq_(c.line_in_file('f', 'asdf'), False)
         eq_(self.open('f', 'rb').read(), 'asdf\n')
 
     def test_line_in_file_exists_no_newline(self):
-        c.file('f', src_data='asdf')
+        c.file('f', data='asdf')
         eq_(c.line_in_file('f', 'blah'), True)
         eq_(self.open('f', 'rb').read(), 'asdf\nblah\n')
 
     def test_line_in_file_absent_match(self):
-        c.file('f', src_data='asdf\n')
+        c.file('f', data='asdf\n')
         eq_(c.line_in_file('f', 'asdf', state='absent'), True)
         eq_(self.open('f', 'rb').read(), '\n')
 
     def test_line_in_file_absent_nomatch(self):
-        c.file('f', src_data='asdf\n')
+        c.file('f', data='asdf\n')
         eq_(c.line_in_file('f', 'fasdf', state='absent'), False)
         eq_(self.open('f', 'rb').read(), 'asdf\n')
 
     def test_line_in_file_regexp_match(self):
-        c.file('f', src_data='asdf')
+        c.file('f', data='asdf')
         eq_(c.line_in_file('f', regexp='^as', line='blah'), True)
         eq_(self.open('f', 'rb').read(), 'blah\n')
 
     def test_line_in_file_regexp_match_equal(self):
-        c.file('f', src_data='asdf\n')
+        c.file('f', data='asdf\n')
         eq_(c.line_in_file('f', regexp='^as', line='asdf'), False)
         eq_(self.open('f', 'rb').read(), 'asdf\n')
 
@@ -128,12 +140,12 @@ class TestCarlCMContext(object):
         eq_(self.open('existingfile', 'rb').read(), 'asdf\nblah\n')
 
     def test_line_in_file_regexp_absent_match(self):
-        c.file('f', src_data='asdf\n')
+        c.file('f', data='asdf\n')
         eq_(c.line_in_file('f', regexp='^as', state='absent'), True)
         eq_(self.open('f', 'rb').read(), '\n')
 
     def test_line_in_file_regexp_absent_nomatch(self):
-        c.file('f', src_data='asdf\n')
+        c.file('f', data='asdf\n')
         eq_(c.line_in_file('f', regexp='^b', state='absent'), False)
         eq_(self.open('f', 'rb').read(), 'asdf\n')
 
@@ -142,16 +154,20 @@ class TestCarlCMContext(object):
         c.line_in_file('nonexistentfile', regexp='^bl', line='blah')
 
     def test_template_new_src_data(self):
-        eq_(c.template('/file.txt', src_data='{{ x }}df', x='as'), True)
+        eq_(c.file('/file.txt', template='{{ x }}df', x='as'), True)
         eq_(self.open('/file.txt', 'rb').read(), 'asdf')
+
+    def test_template_new_vars(self):
+        eq_(c.file('/file.txt', template='{{ x }}df', vars={'x':'bl'}), True)
+        eq_(self.open('/file.txt', 'rb').read(), 'bldf')
 
     def test_template_new_src_path(self):
         with self.open('src.j2', 'wb') as f: f.write('{{ x }}df')
-        eq_(c.template('/file.txt', src_path='src.j2', x='as'), True)
+        eq_(c.file('/file.txt', template_file='src.j2', x='as'), True)
         eq_(self.open('/file.txt', 'rb').read(), 'asdf')
 
     def test_template_match_src_data(self):
-        eq_(c.template('existingfile', src_data='{{ x }}df', x='as'), False)
+        eq_(c.file('existingfile', template='{{ x }}df', x='as'), False)
 
     def test_triggers(self):
         eq_(c.cmd([], triggered_by='t1'), False)
@@ -250,7 +266,7 @@ class TestCarlCMContext(object):
         eq_(c.user('jessie', home=False, groups=['wheel', 'admins', 'gamers']), True)
         eq_(c.users[1]['groups'], ['admins', 'gamers', 'jessie', 'wheel'])
 
-    def test_current_packages(self):
+    def test_current_apt_packages(self):
         c._cmd_quiet.side_effect = ['''
 Desired=Unknown/Install/Remove/Purge/Hold
 | Status=Not/Inst/Conf-files/Unpacked/halF-conf/Half-inst/trig-aWait/Trig-pend
@@ -260,24 +276,54 @@ Desired=Unknown/Install/Remove/Purge/Hold
 ii  ack-grep                                              2.12-1                                              all          grep-like program specifically for large source trees
 ii  acpid                                                 1:2.0.21-1ubuntu2                                   amd64        Advanced Configuration and Power Interface event daemon
 ''']
-        eq_(c.current_packages(), {'ack-grep':'2.12-1','acpid':'1:2.0.21-1ubuntu2'})
-        eq_(c.current_packages(), {'ack-grep':'2.12-1','acpid':'1:2.0.21-1ubuntu2'})
+        eq_(c.current_apt_packages(), {'ack-grep':'2.12-1','acpid':'1:2.0.21-1ubuntu2'})
+        eq_(c.current_apt_packages(), {'ack-grep':'2.12-1','acpid':'1:2.0.21-1ubuntu2'})
         c._cmd_quiet.assert_has_calls([call(['dpkg', '-l'])])
 
+    def test_current_pip_packages(self):
+        c._cmd_quiet.side_effect = ['''
+argparse==1.2.1
+boto==2.38.0
+''']
+        eq_(c.current_pip_packages(), {'argparse':'1.2.1','boto':'2.38.0'})
+        eq_(c.current_pip_packages(), {'argparse':'1.2.1','boto':'2.38.0'})
+        c._cmd_quiet.assert_has_calls([call(['pip', 'freeze'])])
+
+    def test_pip_new(self):
+        c.current_pip_packages = Mock(return_value={})
+        eq_(c.pip('asdf hello=world'), True)
+        c._cmd_quiet.assert_has_calls([call(['pip', 'install', 'asdf', '--upgrade']),
+                                       call(['pip', 'install', 'hello==world'])])
+
     def test_packages_new(self):
-        c.current_packages = Mock(return_value={})
-        eq_(c.packages(['ack-grep', 'acpid']), True)
+        c.current_apt_packages = Mock(return_value={})
+        eq_(c.apt(['ack-grep', 'acpid']), True)
         c._cmd_quiet.assert_called_once_with(['apt-get', 'install', '-y', 'ack-grep', 'acpid'])
 
     def test_packages_present(self):
-        c.current_packages = Mock(return_value={'ack-grep':'2.12-1','acpid':'1:2.0.21-1ubuntu2'})
-        eq_(c.packages(['ack-grep', 'acpid']), False)
+        c.current_apt_packages = Mock(return_value={'ack-grep':'2.12-1','acpid':'1:2.0.21-1ubuntu2'})
+        eq_(c.apt(['ack-grep', 'acpid']), False)
         c._cmd_quiet.assert_has_calls([])
 
     def test_packages_mixed(self):
-        c.current_packages = Mock(return_value={'ack-grep':'2.12-1'})
-        eq_(c.packages(['ack-grep', 'acpid']), True)
+        c.current_apt_packages = Mock(return_value={'ack-grep':'2.12-1'})
+        eq_(c.apt(['ack-grep', 'acpid']), True)
         c._cmd_quiet.assert_called_once_with(['apt-get', 'install', '-y', 'acpid'])
+
+    def test_packages_versioned_any(self):
+        c.current_apt_packages = Mock(return_value={'ack-grep':'2.12-1','acpid':'1:2.0.21-1ubuntu2'})
+        eq_(c.apt(['ack-grep=any', 'acpid=any']), False)
+        c._cmd_quiet.assert_has_calls([])
+
+    def test_packages_versioned_gt(self):
+        c.current_apt_packages = Mock(return_value={'ack-grep':'2.12-0','acpid':'1:2.0.21-1ubuntu2'})
+        eq_(c.apt(['ack-grep>=2.12-1', 'acpid>=1:2.0.21-1ubuntu2']), True)
+        c._cmd_quiet.assert_called_once_with(['apt-get', 'install', '-y', 'ack-grep'])
+
+    def test_packages_versioned_eq(self):
+        c.current_apt_packages = Mock(return_value={'ack-grep':'2.12-0','acpid':'1:2.0.21-1ubuntu2'})
+        eq_(c.apt(['ack-grep=2.12-1', 'acpid==1:2.0.21-1ubuntu2']), True)
+        c._cmd_quiet.assert_called_once_with(['apt-get', 'install', '-y', 'ack-grep=2.12-1'])
 
     def test_download_new(self):
         c.mock_urls['http://blah.com/blah.txt'] = 'asdf\n'

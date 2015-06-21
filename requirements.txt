@@ -1,8 +1,9 @@
-nose
-mock
+boto>=2.38.0
 coverage
 jinja2
+mock
+moto
+nose
 pyfakefs
 python-consul
-boto
-moto
+pyyaml

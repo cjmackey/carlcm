@@ -46,9 +46,9 @@ class ConsulModule(BaseModule):
 
         context.file('/etc/consul.d/config.json',
                      owner='root', group='consul', mode='640',
-                     src_data=config_json, triggers='consul')
+                     json_data=config_json, triggers='consul')
         context.file('/etc/init/consul.conf',
-                     src_data=self._upstart_conf(), triggers='consul-restart')
+                     data=self._upstart_conf(), triggers='consul-restart')
 
         context.shell('service consul restart', triggered_by='consul-restart')
         context.shell('service consul reload', triggered_by='consul')
