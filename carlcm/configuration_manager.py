@@ -504,12 +504,13 @@ class ConfigurationManager(object):
         return self._after(not user_existed or home_changed or home_perm_changed or changing_groups or changed_auth_keys, triggers)
 
     def line_in_file(self, path, line=None, regexp=None, state='present',
-                     enforce_trailing_newline=True,
+                     enforce_trailing_newline=True, new_position='bottom',
                      triggers=None, triggered_by=None):
         if self._before(triggered_by): return False
         if not self.os.path.isfile(path):
             raise ValueError('path %s is not a file!' % path)
         assert state in ['present', 'absent']
+        assert new_position in ['bottom', 'top']
         if state == 'present': assert line is not None
         if state == 'absent': assert bool(regexp is not None) != bool(line is not None)
         if type(regexp) is str:
@@ -528,9 +529,13 @@ class ConfigurationManager(object):
         if state == 'present':
             assert line is not None
             if line_ix is None:
-                line_ix = len(lines)
-                if len(lines) > 0 and lines[-1] == '':
-                    line_ix -= 1
+                if new_position == 'bottom':
+                    line_ix = len(lines)
+                    if len(lines) > 0 and lines[-1] == '':
+                        line_ix -= 1
+                elif new_position == 'top':
+                    line_ix = 0
+                    lines = [''] + lines
             assert line_ix <= len(lines)
             if line_ix == len(lines):
                 lines += ['']

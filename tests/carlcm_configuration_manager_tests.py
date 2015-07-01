@@ -110,6 +110,16 @@ class TestCarlCMConfigurationManager(object):
         eq_(c.line_in_file('f', 'asdf'), False)
         eq_(self.open('f', 'rb').read(), 'asdf\n')
 
+    def test_line_in_file_exists_top(self):
+        c.file('f', data='asdf\n')
+        eq_(c.line_in_file('f', 'blah', new_position='top'), True)
+        eq_(self.open('f', 'rb').read(), 'blah\nasdf\n')
+
+    def test_line_in_file_exists_and_matches_top(self):
+        c.file('f', data='blah\nasdf\n')
+        eq_(c.line_in_file('f', 'asdf', new_position='top'), False)
+        eq_(self.open('f', 'rb').read(), 'blah\nasdf\n')
+
     def test_line_in_file_exists_no_newline(self):
         c.file('f', data='asdf')
         eq_(c.line_in_file('f', 'blah'), True)
