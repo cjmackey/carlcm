@@ -161,6 +161,19 @@ class ConfigurationManager(object):
         self._cmd_quiet(['apt-get', 'update'])
         return self._after(True, triggers)
 
+    def _split_version(self, version):
+        '''
+        understand versions by splitting on non-numbers.  this is
+        needed to make, for example, version 1.10.0 be greater than
+        version 1.9.0.  this is probably not the simplest way to do
+        this :/
+        '''
+        r = re.compile('[^0-9]+')
+        l = [m.span() for m in r.finditer(version)]
+        l = [item for sublist in l for item in sublist]
+        l = zip([0]+l, l+[len(version)])
+        return [int(version[a:b]) if version[a:b].isdigit() else version[a:b] for a, b in l]
+
     def _pkg_str(self, s, cache=None):
         if cache is None:
             cache = self.current_apt_packages()
@@ -181,7 +194,7 @@ class ConfigurationManager(object):
         elif version == 'latest':
             need_install = True
         elif current:
-            if comparator == '>=' and not current >= version:
+            if comparator == '>=' and not self._split_version(current) >= self._split_version(version):
                 need_install = True
             elif comparator == '=' and not current == version:
                 need_install = True
@@ -506,6 +519,9 @@ class ConfigurationManager(object):
     def line_in_file(self, path, line=None, regexp=None, state='present',
                      enforce_trailing_newline=True, new_position='bottom',
                      triggers=None, triggered_by=None):
+        '''
+        boy is this complicated
+        '''
         if self._before(triggered_by): return False
         if not self.os.path.isfile(path):
             raise ValueError('path %s is not a file!' % path)

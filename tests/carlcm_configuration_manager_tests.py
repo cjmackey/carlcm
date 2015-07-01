@@ -330,6 +330,11 @@ boto==2.38.0
         eq_(c.apt(['ack-grep>=2.12-1', 'acpid>=1:2.0.21-1ubuntu2']), True)
         c._cmd_quiet.assert_called_once_with(['apt-get', 'install', '-y', 'ack-grep'])
 
+    def test_packages_versioned_gt_splits(self):
+        c.current_apt_packages = Mock(return_value={'ack-grep':'2.12-0','acpid':'1:2.0.21-1ubuntu2'})
+        eq_(c.apt(['ack-grep>=2.100-0', 'acpid>=1:2.0.21-1ubuntu2']), True)
+        c._cmd_quiet.assert_called_once_with(['apt-get', 'install', '-y', 'ack-grep'])
+
     def test_packages_versioned_eq(self):
         c.current_apt_packages = Mock(return_value={'ack-grep':'2.12-0','acpid':'1:2.0.21-1ubuntu2'})
         eq_(c.apt(['ack-grep=2.12-1', 'acpid==1:2.0.21-1ubuntu2']), True)
