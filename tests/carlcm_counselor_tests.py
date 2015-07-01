@@ -21,7 +21,7 @@ class TestCounselor(object):
     def test_ensure_local(self):
         c.get_instances = Mock(return_value=[])
 
-        context = carlcm.MockContext()
+        context = carlcm.MockConfigurationManager()
         context.packages = Mock()
         context.download = Mock()
         c.ensure_local(context=context)

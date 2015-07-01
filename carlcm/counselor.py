@@ -127,7 +127,7 @@ sudo /usr/local/bin/carlcm-counselor %i''' % (count)
         return
 
     def ensure_local(self, count=1, is_bootstrap=False, context=None):
-        from .context import Context
+        from .configuration_manager import ConfigurationManager
         from .modules import ConsulModule
 
         is_bootstrap = (is_bootstrap is True or is_bootstrap == 'bootstrap')
@@ -142,7 +142,7 @@ sudo /usr/local/bin/carlcm-counselor %i''' % (count)
         if is_bootstrap and all([self.meta['local-ipv4'] < ip for ip in counselor_ips]):
             counselor_ips = None
 
-        c = Context()
+        c = ConfigurationManager()
         if context is not None:
             c = context
 

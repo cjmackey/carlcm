@@ -3,7 +3,7 @@ try:
 except ImportError:
     from distutils.core import setup, find_packages
 
-version = '0.1.13'
+version = '0.1.14'
 
 config = {
     'description': 'CarlCM',
@@ -11,7 +11,7 @@ config = {
     'url': 'https://github.com/cjmackey/carlcm',
     'author_email': 'carljmackey@gmail.com',
     'version': version,
-    'install_requires': ['jinja2', 'pyyaml'],
+    'install_requires': ['jinja2>=2', 'pyyaml>=3', 'requests>=2'],
     'packages': find_packages(),
     'scripts': [
         'bin/carlcm-bootstrap-council',

@@ -17,7 +17,7 @@ import yaml
 
 # TODO: some sort of locking/mutexing to wait if some other context is running
 
-class Context(object):
+class ConfigurationManager(object):
     '''
     Most methods return True if something was modified, and False otherwise
     '''
@@ -350,7 +350,7 @@ class Context(object):
         is_new = self._mkdir(path)
         perm_change = self._apply_permissions(path, owner, group, mode)
         return self._after(perm_change or is_new, triggers)
-    
+
     def file(self, dest_path, data_file=None, data=None,
              json_data=None, yaml_data=None,
              template=None, template_file=None, template_engine='jinja2',
@@ -558,7 +558,7 @@ class Context(object):
 
 # TODO: rsync, git repo, apt sources, apt keys, ssh authorized_keys, cron
 
-class MockContext(Context):
+class MockConfigurationManager(ConfigurationManager):
 
     is_mock = True
 
@@ -573,9 +573,9 @@ class MockContext(Context):
         self.mock_urls = {}
         self._cmd = Mock()
         self._cmd_quiet = Mock()
-        Context.__init__(self,
-                         _os=fake_filesystem.FakeOsModule(self.fs),
-                         _open=fake_filesystem.FakeFileOpen(self.fs))
+        ConfigurationManager.__init__(self,
+                                      _os=fake_filesystem.FakeOsModule(self.fs),
+                                      _open=fake_filesystem.FakeFileOpen(self.fs))
     def _cmd(self):
         assert False
     def _cmd_quiet(self):

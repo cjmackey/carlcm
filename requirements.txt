@@ -4,6 +4,9 @@ jinja2
 mock
 moto
 nose
+pep8
 pyfakefs
+pyflakes
+pylint>=1.4
 python-consul
 pyyaml

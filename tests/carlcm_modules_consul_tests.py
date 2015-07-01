@@ -8,11 +8,11 @@ import carlcm
 
 c = None
 
-class TestCarlCMContext(object):
+class TestCarlCMConsulTests(object):
 
     def setup(self):
         global c
-        c = carlcm.MockContext()
+        c = carlcm.MockConfigurationManager()
 
     def test_server_config(self):
         m = carlcm.ConsulModule(mode='server')

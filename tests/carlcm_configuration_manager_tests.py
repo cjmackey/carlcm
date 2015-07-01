@@ -9,11 +9,11 @@ import carlcm
 
 c = None
 
-class TestCarlCMContext(object):
+class TestCarlCMConfigurationManager(object):
 
     def setup(self):
         global c
-        c = carlcm.MockContext()
+        c = carlcm.MockConfigurationManager()
         self.open = c.open
         self.os = c.os
         with self.open('existingfile', 'wb') as f:
